@@ -75,6 +75,12 @@ func tmuxConfig() string {
 
 		// Ending the agent ends its pane rather than leaving a dead one.
 		"set -g remain-on-exit off",
+
+		// An agent asks the terminal for its background colour (OSC 11) to
+		// choose a light or dark theme. tmux answers such queries itself, so
+		// without passthrough the agent gets tmux's idea of the background
+		// rather than the real one and picks the wrong palette.
+		"set -g allow-passthrough on",
 	}
 
 	// tmux advertises a 256-colour TERM by default, so an agent reading TERM
@@ -82,7 +88,10 @@ func tmuxConfig() string {
 	if term := os.Getenv("TERM"); term != "" && os.Getenv("COLORTERM") == "truecolor" {
 		lines = append(lines,
 			`set -g default-terminal "tmux-direct"`,
-			`set -ga terminal-features ",`+term+`:RGB"`,
+			// RGB is 24-bit colour. The rest are capabilities tmux does not
+			// detect for every terminal but which a modern one supports, and
+			// which an agent's interface relies on.
+			`set -ga terminal-features ",`+term+`:RGB:usstyle:ccolour:cstyle:focus:title:clipboard"`,
 		)
 	}
 
@@ -114,8 +123,13 @@ func (s *splitSession) Start(ctx context.Context, agent agentCommand, logPercent
 	// The agent runs wrapped in a shell that ends the session when it exits.
 	// Otherwise the log pane, a tail that never ends by itself, would keep the
 	// session alive and closing it would take another keypress.
-	quoted := make([]string, 0, len(agent.args)+1)
-	quoted = append(quoted, shellQuote(agent.path))
+	//
+	// TMUX is unset for the agent only. Claude Code downgrades to 256 colours
+	// whenever it sees that variable, ignoring COLORTERM, so its palette comes
+	// out muted inside a pane (anthropics/claude-code#60788). The pane is still
+	// a tmux pane; the agent simply is not told so.
+	quoted := make([]string, 0, len(agent.args)+3)
+	quoted = append(quoted, "TMUX=", "TMUX_PANE=", shellQuote(agent.path))
 	for _, arg := range agent.args {
 		quoted = append(quoted, shellQuote(arg))
 	}
