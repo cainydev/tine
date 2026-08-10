@@ -130,12 +130,25 @@ templ InstanceDetail(nav Nav, in Instance, params []Param, errMsg string) {
 templ credentialSection(nav Nav, in Instance) {
 	<section class="mb-8">
 		<h2 class="mb-3 text-sm font-medium text-neutral-300">credential</h2>
-		if in.NeedsReauth {
-			<p class="mb-3 rounded border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-300">
-				the stored credential was rejected upstream and could not be refreshed. replace it below.
+		if needsNoCredential(in) {
+			// Nothing to enter, so the form is omitted entirely rather than
+			// shown with a save button that would do nothing.
+			<p class="rounded border border-neutral-800 bg-neutral-900/40 px-4 py-3 text-xs text-neutral-500">
+				{ credentialLabel("none") }
 			</p>
+		} else {
+			if in.NeedsReauth {
+				<p class="mb-3 rounded border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-300">
+					the stored credential was rejected upstream and could not be refreshed. replace it below.
+				</p>
+			}
+			@credentialForm(nav, in)
 		}
-		<form
+	</section>
+}
+
+templ credentialForm(nav Nav, in Instance) {
+	<form
 			method="post"
 			action={ templ.SafeURL(fmt.Sprintf("/%s/%s/%s/credential", nav.UserSlug, in.IntegrationSlug, in.ID)) }
 			class="space-y-5 rounded border border-neutral-800 bg-neutral-900/40 p-4"
@@ -143,23 +156,27 @@ templ credentialSection(nav Nav, in Instance) {
 			<p class="text-xs text-neutral-500">
 				stored encrypted. the value is never shown again once saved.
 			</p>
-			@field("type", "") {
-				<select
-					name="kind"
-					class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
-					hx-get={ fmt.Sprintf("/%s/%s/%s/credential/fields", nav.UserSlug, in.IntegrationSlug, in.ID) }
-					hx-target="#credential-fields"
-					hx-trigger="change"
-				>
-					@kindOption("none", "no authentication", in.CredentialKind)
-					@kindOption("bearer", "bearer token", in.CredentialKind)
-					@kindOption("header", "header value", in.CredentialKind)
-					@kindOption("basic", "username and password", in.CredentialKind)
-					@kindOption("oauth2", "oauth2 client credentials", in.CredentialKind)
-				</select>
+			if len(in.CredentialKinds) > 1 {
+				@field("type", "") {
+					<select
+						name="kind"
+						class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+						hx-get={ fmt.Sprintf("/%s/%s/%s/credential/fields", nav.UserSlug, in.IntegrationSlug, in.ID) }
+						hx-target="#credential-fields"
+						hx-trigger="change"
+					>
+						for _, kind := range in.CredentialKinds {
+							@kindOption(kind, credentialLabel(kind), selectedKind(in))
+						}
+					</select>
+				}
+			} else if len(in.CredentialKinds) == 1 {
+				// One accepted kind: nothing to choose, so the field is sent
+				// hidden rather than shown as a select with a single option.
+				<input type="hidden" name="kind" value={ in.CredentialKinds[0] }/>
 			}
 			<div id="credential-fields">
-				@CredentialFields(in.CredentialKind)
+				@CredentialFields(selectedKind(in))
 			</div>
 			<button
 				type="submit"
@@ -168,7 +185,12 @@ templ credentialSection(nav Nav, in Instance) {
 				save credential
 			</button>
 		</form>
-	</section>
+}
+
+// needsNoCredential reports whether an integration takes no credential at all,
+// in which case there is no form to show.
+func needsNoCredential(in Instance) bool {
+	return len(in.CredentialKinds) == 1 && in.CredentialKinds[0] == "none"
 }
 
 // credentialLabel names a credential kind for the interface.
