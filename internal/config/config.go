@@ -15,59 +15,34 @@ import (
 
 // Config is the fully validated runtime configuration.
 type Config struct {
-	// Addr is the listen address, e.g. ":8080".
 	Addr string
 
-	// DatabasePath is the SQLite file. Its directory must already exist.
 	DatabasePath string
 
-	// PublicURL is tine's externally reachable base URL. It is published as the
-	// OAuth protected resource identifier, so it must match what clients dial
-	// not the internal listen address.
 	PublicURL string
 
-	// OIDCIssuer is the identity provider's issuer URL. tine validates tokens
-	// against it but never issues any.
 	OIDCIssuer string
 
-	// OIDCAudience is the audience claim tokens must carry. Rejecting tokens
-	// minted for another service is the point, so it is required.
 	OIDCAudience string
 
-	// MasterKey is the 32-byte key that seals credential data keys, hex-encoded.
 	MasterKey string
 
-	// OIDCClientID and OIDCClientSecret authenticate tine to the identity
-	// provider during web sign in. The MCP resource server needs neither: it
-	// only validates tokens, which requires a public key.
 	OIDCClientID     string
 	OIDCClientSecret string
 
-	// SessionSecret signs web session cookies.
 	SessionSecret string
 
-	// DevSubject, when set, makes tine treat every caller as this subject and
-	// skip token validation. Local development only; requires DevMode.
 	DevSubject string
 
-	// DevMode must be set alongside DevSubject. Requiring both means auth
-	// cannot be disabled by a single stray environment variable.
 	DevMode bool
 
-	// LogLevel is one of debug, info, warn, error.
 	LogLevel string
 
-	// ShutdownTimeout bounds how long in-flight requests may finish.
 	ShutdownTimeout time.Duration
 }
 
 // Load reads configuration from the environment and validates it.
-//
-// Every value is validated here rather than at first use, so a misconfigured
-// deployment fails at startup instead of on a request hours later.
 func Load() (*Config, error) {
-	// A .env file is a convenience for local runs. Real deployments set
-	// variables directly, and those always win over the file.
 	envFile := env("TINE_ENV_FILE", DefaultEnvFile)
 	if err := loadEnvFile(envFile); err != nil {
 		return nil, err
@@ -116,8 +91,6 @@ func (c *Config) validate() error {
 		errs = append(errs, errors.New("TINE_DEV_SUBJECT requires TINE_DEV_MODE=1"))
 	}
 
-	// In dev mode no identity provider is contacted, so the OIDC settings are
-	// not required and are ignored if present.
 	if !c.AuthDisabled() {
 		if c.OIDCIssuer == "" {
 			errs = append(errs, errors.New("TINE_OIDC_ISSUER is required"))
@@ -134,8 +107,6 @@ func (c *Config) validate() error {
 		errs = append(errs, fmt.Errorf("TINE_MASTER_KEY: %w", err))
 	}
 
-	// The web interface is optional: without a client id there is no sign in,
-	// and tine serves MCP endpoints only.
 	if c.WebEnabled() {
 		if c.OIDCClientSecret == "" {
 			errs = append(errs, errors.New("TINE_OIDC_CLIENT_SECRET is required with TINE_OIDC_CLIENT_ID"))

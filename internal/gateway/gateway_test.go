@@ -85,13 +85,10 @@ func TestRouting(t *testing.T) {
 			"expired token", http.MethodPost, "/john/shopware/inst-1",
 			ti.token(t, "owner-sub", audience, time.Now().Add(-time.Hour)), http.StatusUnauthorized,
 		},
-		// A valid token for a different subject must not reveal that the
-		// instance exists, so this is 404 rather than 403.
 		{"valid token, wrong owner", http.MethodPost, "/john/shopware/inst-1", strangerToken, http.StatusNotFound},
 		{"unknown id", http.MethodPost, "/john/shopware/nope", ownerToken, http.StatusNotFound},
 		{"right id, wrong integration", http.MethodPost, "/john/billbee/inst-1", ownerToken, http.StatusNotFound},
 		{"right id, wrong user", http.MethodPost, "/nobody/shopware/inst-1", ownerToken, http.StatusNotFound},
-		// Stateless mode routes POST only.
 		{"GET not routed", http.MethodGet, "/john/shopware/inst-1", ownerToken, http.StatusMethodNotAllowed},
 	}
 
@@ -172,7 +169,6 @@ func TestResolverFailureIsInternalError(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
-	// A resolver failure must not leak its cause to the caller.
 	if strings.Contains(rec.Body.String(), "database") {
 		t.Errorf("response leaked internal error: %s", rec.Body.String())
 	}

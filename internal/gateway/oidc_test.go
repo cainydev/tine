@@ -201,7 +201,6 @@ func TestProtectedResourceMetadata(t *testing.T) {
 	if len(got.AuthorizationServers) != 1 || got.AuthorizationServers[0] != ti.server.URL {
 		t.Errorf("authorization_servers = %v, want [%s]", got.AuthorizationServers, ti.server.URL)
 	}
-	// A token in a query string would leak into logs and history.
 	if len(got.BearerMethods) != 1 || got.BearerMethods[0] != "header" {
 		t.Errorf("bearer_methods_supported = %v, want [header]", got.BearerMethods)
 	}

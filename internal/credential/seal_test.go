@@ -36,7 +36,6 @@ func TestSealRoundTrip(t *testing.T) {
 			t.Fatalf("seal: %v", err)
 		}
 
-		// The plaintext must not survive anywhere in the stored bytes.
 		if len(plaintext) > 0 && bytes.Contains(sealed.Ciphertext, plaintext) {
 			t.Fatal("ciphertext contains the plaintext")
 		}

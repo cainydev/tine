@@ -1,9 +1,4 @@
 // Package shopware exposes a Shopware 6 store through its Admin API.
-//
-// Authentication is an OAuth2 client credentials grant against the store's own
-// token endpoint, using an integration created under Settings, System,
-// Integrations. Shopware issues tokens valid for ten minutes, so the credential
-// refreshes them as needed.
 package shopware
 
 import (
@@ -51,9 +46,6 @@ func (*Integration) Params() []integrations.ParamSpec {
 }
 
 // TokenURL returns the Admin API token endpoint for a store.
-//
-// Exported so the interface can derive it when a credential is configured: an
-// operator supplies the store URL, not the token path.
 func TokenURL(baseURL string) string {
 	return strings.TrimRight(baseURL, "/") + "/api/oauth/token"
 }
@@ -86,8 +78,6 @@ func (*Integration) Bind(_ context.Context, b *integrations.Binding) ([]integrat
 		http:     b.HTTP,
 	}
 
-	// The token endpoint belongs to this store, and the credential is stored
-	// before the store URL is known, so it is filled in here.
 	if oauth, ok := c.cred.(*credential.ClientCredentials); ok {
 		if oauth.TokenURL == "" {
 			oauth.TokenURL = TokenURL(base)
@@ -345,7 +335,7 @@ func (c *client) count(ctx context.Context, entity string) (int, error) {
 	}
 	err := c.post(ctx, "/api/search/"+entity, map[string]any{
 		"limit":            1,
-		"total-count-mode": 1, // exact count rather than an estimate
+		"total-count-mode": 1,
 	}, &resp)
 	return resp.Total, err
 }
@@ -370,8 +360,6 @@ func (c *client) do(ctx context.Context, method, path string, body []byte, out a
 		return err
 	}
 
-	// A token can be revoked before it expires, so one refresh and retry is
-	// worth the round trip. Any further failure is reported.
 	if resp.StatusCode == http.StatusUnauthorized {
 		_ = resp.Body.Close() //nolint:errcheck // discarded, about to retry
 

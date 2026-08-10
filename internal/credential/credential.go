@@ -25,13 +25,7 @@ const (
 type Credential interface {
 	Kind() Kind
 
-	// Apply attaches auth to req. It may refresh expired material, so it takes a
-	// context and can fail.
 	Apply(ctx context.Context, req *http.Request) error
 
-	// Refresh re-acquires auth material after upstream rejected it. Callers
-	// invoke it at most once per request, on 401/403, then retry. Credentials
-	// with nothing to refresh return ErrNotRefreshable so the caller stops
-	// instead of looping.
 	Refresh(ctx context.Context) error
 }

@@ -20,9 +20,6 @@ func (*secretCmd) Run() error {
 }
 
 // envCmd prints a configuration template with fresh secrets.
-//
-// The values that can be generated are, so the only thing left to fill in is
-// what must come from elsewhere.
 type envCmd struct{}
 
 func (*envCmd) Run() error {
@@ -39,13 +36,13 @@ func (*envCmd) Run() error {
 
 # where tine is reachable. must match what clients dial: it is published as the
 # oauth protected resource identifier.
-TINE_PUBLIC_URL=http://localhost:8080
+TINE_PUBLIC_URL=http:
 
 # identity provider. any oidc issuer works.
 #
-# workos:    https://api.workos.com/user_management/<client-id>
-# zitadel:   https://<instance>.zitadel.cloud
-# authentik: https://<host>/application/o/<slug>/
+# workos:    https:
+# zitadel:   https:
+# authentik: https:
 #
 # check it with: curl <issuer>/.well-known/openid-configuration
 TINE_OIDC_ISSUER=

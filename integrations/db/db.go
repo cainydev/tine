@@ -285,7 +285,7 @@ func (c *client) get(ctx context.Context, path string, q url.Values, out any) er
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			_ = err // nothing actionable once the body is read
+			_ = err
 		}
 	}()
 

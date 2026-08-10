@@ -253,7 +253,6 @@ func buildCredential(in web.CredentialInput) (credential.Credential, error) {
 			if in.BaseURL == "" {
 				return nil, errors.New("token url is required when the instance has no base url")
 			}
-			// Shopware's token endpoint is a fixed path under the store url.
 			tokenURL = shopware.TokenURL(in.BaseURL)
 		}
 

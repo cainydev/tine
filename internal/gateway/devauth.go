@@ -26,7 +26,6 @@ func (d *devAuthenticator) Authenticate(context.Context, *http.Request) (string,
 }
 
 func (d *devAuthenticator) challenge(w http.ResponseWriter) {
-	// Unreachable while Authenticate always succeeds, but the interface needs it.
 	http.Error(w, "unauthorized", http.StatusUnauthorized)
 }
 

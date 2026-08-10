@@ -13,10 +13,6 @@ import (
 )
 
 // splitSession runs an agent above a live request log, using tmux.
-//
-// tmux gives each pane a real tty, so the agent's full-screen interface behaves
-// exactly as it does alone. Composing both regions inside tine would mean
-// implementing a terminal emulator, which is far more code than this earns.
 type splitSession struct {
 	name       string
 	logPath    string
@@ -32,10 +28,6 @@ func newSplitSession(port string) (*splitSession, error) {
 		return nil, fmt.Errorf("create session directory: %w", err)
 	}
 
-	// A regular file rather than a fifo. Writing to a fifo blocks until a reader
-	// attaches and fails with EPIPE if the reader goes away, so a log line could
-	// hang startup or kill the server. `tail -f` follows a file just as well and
-	// neither hazard applies.
 	logPath := filepath.Join(dir, "log")
 	if err := os.WriteFile(logPath, nil, 0o600); err != nil {
 		return nil, fmt.Errorf("create log file: %w", err)
@@ -55,45 +47,25 @@ func newSplitSession(port string) (*splitSession, error) {
 }
 
 // tmuxConfig returns the settings the session starts with.
-//
-// These go through a configuration file rather than set-option calls because
-// tmux runs a config when the server first starts, before any pane exists.
-// default-terminal in particular decides the TERM a pane inherits, so setting
-// it afterwards would come too late for the agent.
 func tmuxConfig() string {
 	lines := []string{
-		// Without a status bar, borders or titles, the two panes read as one
-		// terminal split rather than a multiplexer session.
 		"set -g status off",
 		"set -g pane-border-status off",
 		"set -g pane-border-style fg=colour238",
 		"set -g pane-active-border-style fg=colour238",
 
-		// Escape belongs to the agent, not to tmux's copy mode.
 		"set -g escape-time 0",
 
-		// There is no status bar to show messages on, so keep any that appear
-		// brief.
 		"set -g display-time 1000",
 
-		// Ending the agent ends its pane rather than leaving a dead one.
 		"set -g remain-on-exit off",
 
-		// An agent asks the terminal for its background colour (OSC 11) to
-		// choose a light or dark theme. tmux answers such queries itself, so
-		// without passthrough the agent gets tmux's idea of the background
-		// rather than the real one and picks the wrong palette.
 		"set -g allow-passthrough on",
 	}
 
-	// tmux advertises a 256-colour TERM by default, so an agent reading TERM
-	// picks a degraded palette however capable the outer terminal is.
 	if term := os.Getenv("TERM"); term != "" && os.Getenv("COLORTERM") == "truecolor" {
 		lines = append(lines,
 			`set -g default-terminal "tmux-direct"`,
-			// RGB is 24-bit colour. The rest are capabilities tmux does not
-			// detect for every terminal but which a modern one supports, and
-			// which an agent's interface relies on.
 			`set -ga terminal-features ",`+term+`:RGB:usstyle:ccolour:cstyle:focus:title:clipboard"`,
 		)
 	}
@@ -116,18 +88,8 @@ func (s *splitSession) Start(ctx context.Context, agent agentCommand, logPercent
 		return nil, fmt.Errorf("tmux is required for a split launch: %w", err)
 	}
 
-	// A session left behind by an earlier run on this port would block reuse of
-	// the name. Its absence is the normal case, so the error is ignored.
 	_ = exec.CommandContext(ctx, "tmux", "kill-session", "-t", s.name).Run() //nolint:errcheck // absent session is expected
 
-	// The agent runs wrapped in a shell that ends the session when it exits.
-	// Otherwise the log pane, a tail that never ends by itself, would keep the
-	// session alive and closing it would take another keypress.
-	//
-	// TMUX is unset for the agent only. Claude Code downgrades to 256 colours
-	// whenever it sees that variable, ignoring COLORTERM, so its palette comes
-	// out muted inside a pane (anthropics/claude-code#60788). The pane is still
-	// a tmux pane; the agent simply is not told so.
 	quoted := make([]string, 0, len(agent.args)+3)
 	quoted = append(quoted, "TMUX=", "TMUX_PANE=", shellQuote(agent.path))
 	for _, arg := range agent.args {
@@ -135,9 +97,6 @@ func (s *splitSession) Start(ctx context.Context, agent agentCommand, logPercent
 	}
 	wrapped := strings.Join(quoted, " ") + "; tmux kill-session -t " + shellQuote(s.name)
 
-	// A detached session defaults to 80x24, and a split sized against those rows
-	// is rescaled on attach, drifting from the requested proportion. Create it
-	// at the real terminal size instead.
 	args := []string{"-f", s.configPath, "new-session", "-d", "-s", s.name, "-n", "tine"}
 	if w, h, err := terminalSize(); err == nil {
 		args = append(args, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h))
@@ -182,10 +141,6 @@ func (s *splitSession) Attach(ctx context.Context) error {
 }
 
 // Kill ends the tmux session if it is still running.
-//
-// The context is taken explicitly rather than derived from the caller's: by the
-// time teardown runs that context is usually already cancelled, and a derived
-// one would kill this command before it could clean up.
 func (s *splitSession) Kill(ctx context.Context) {
 	cmd := exec.CommandContext(ctx, "tmux", "kill-session", "-t", s.name)
 	_ = cmd.Run() //nolint:errcheck // best effort teardown

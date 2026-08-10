@@ -25,12 +25,8 @@ var ErrNotFound = errors.New("instance not found")
 // Instance is a resolved integration instance: the unit that owns one MCP
 // endpoint.
 type Instance struct {
-	// ID is the stable public identifier in the URL's third segment. It is
-	// minted once at creation and never derived from configuration, so editing
-	// an instance never changes its endpoint.
 	ID string
 
-	// OwnerSubject is the OIDC subject permitted to use this endpoint.
 	OwnerSubject string
 
 	UserSlug        string
@@ -41,10 +37,6 @@ type Instance struct {
 
 // Resolver looks up the instance addressed by a request path. Implemented by
 // the store; defined here because the gateway is the consumer.
-//
-// All three path segments are passed: the id alone identifies the instance, but
-// the user and integration segments must match the stored values, so a guessed
-// id under the wrong path does not resolve.
 type Resolver interface {
 	Resolve(ctx context.Context, userSlug, integrationSlug, id string) (*Instance, error)
 }
@@ -70,21 +62,19 @@ func New(r Resolver, b Builder, auth Authenticator, log *slog.Logger) *Gateway {
 }
 
 // Handler returns the root HTTP handler.
-//
-// Routing uses net/http's method+wildcard patterns, so /<user>/<instance> is
-// matched without a third-party router.
 func (g *Gateway) Handler() http.Handler {
 	mux := http.NewServeMux()
+	g.Routes(mux)
+	return mux
+}
 
-	// The MCP endpoint itself. Stateless mode rejects GET and DELETE with 405,
-	// so only POST is routed here.
+// Routes registers the gateway on a mux.
+func (g *Gateway) Routes(mux *http.ServeMux) {
 	mcpHandler := mcp.NewStreamableHTTPHandler(g.serverForRequest, &mcp.StreamableHTTPOptions{
 		Stateless: true,
 	})
 	mux.Handle("POST /{user}/{integration}/{id}", g.withInstance(mcpHandler))
 
-	// RFC 9728. Clients fetch this after a 401 to discover the authorization
-	// server, so it must be reachable without a token.
 	mux.HandleFunc("GET "+protectedResourcePath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(g.auth.metadata()); err != nil {
@@ -98,8 +88,6 @@ func (g *Gateway) Handler() http.Handler {
 			g.log.DebugContext(r.Context(), "healthz write", slog.Any("error", err))
 		}
 	})
-
-	return mux
 }
 
 // contextKey is unexported so no other package can collide with our keys.
@@ -109,16 +97,10 @@ var instanceKey = &contextKey{"instance"}
 
 // withInstance resolves the instance named in the path, authenticates the
 // request against it, and stores it on the context for serverForRequest.
-//
-// Resolution happens here rather than in serverForRequest because that callback
-// cannot report an error: returning nil yields a bare 400, losing the
-// distinction between "no such instance" and "wrong token".
 func (g *Gateway) withInstance(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// Authenticate before resolving: an anonymous caller must not be able to
-		// probe which instances exist by comparing 401 against 404.
 		subject, err := g.auth.Authenticate(ctx, r)
 		if err != nil {
 			g.log.DebugContext(ctx, "authentication failed", slog.Any("error", err))
@@ -145,8 +127,6 @@ func (g *Gateway) withInstance(next http.Handler) http.Handler {
 			return
 		}
 
-		// Authenticated as someone, but not the owner. 404 rather than 403: a
-		// valid token for another account learns nothing about this one.
 		if inst.OwnerSubject != subject {
 			g.log.WarnContext(ctx, "subject mismatch on instance",
 				slog.String("instance", inst.ID),

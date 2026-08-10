@@ -25,22 +25,17 @@ type SeedRequest struct {
 
 	Now int64
 
-	// NewID mints identifiers. Injected so tests can make them deterministic.
 	NewID func() (string, error)
 }
 
 // SeedInstance creates the user and integration if absent, then one instance,
 // returning the instance id.
-//
-// Everything happens in one transaction: a partial seed would leave a user with
-// no instance and no clear way to tell whether the command succeeded.
 func (s *Store) SeedInstance(ctx context.Context, req SeedRequest) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("begin: %w", err)
 	}
 	defer func() {
-		// Rollback after Commit returns ErrTxDone, which is not a failure.
 		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
 			_ = rbErr
 		}

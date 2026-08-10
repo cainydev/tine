@@ -29,9 +29,6 @@ const (
 )
 
 // devCmd serves one integration locally with authentication disabled.
-//
-// Everything it needs is created in memory: no database to seed, no master key
-// to manage, and a stable endpoint derived from the integration slug.
 type devCmd struct {
 	Integration string            `arg:"" help:"Integration to serve. Compiled in:${integrations}"`
 	Param       map[string]string `short:"p" placeholder:"KEY=VALUE" help:"Instance parameter. Repeatable."`
@@ -64,8 +61,6 @@ func (c *devCmd) Run() error {
 	ctx, stop := signalContext()
 	defer stop()
 
-	// A split launch sends the log to a fifo the second pane reads; otherwise it
-	// goes to stderr, where the terminal is free to show it.
 	var split *splitSession
 	if c.splitting() {
 		split, err = newSplitSession(strings.TrimPrefix(portOf(c.Addr), ":"))
@@ -80,7 +75,6 @@ func (c *devCmd) Run() error {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	// In-memory: dev state should not outlive the process.
 	db, err := store.Open(ctx, ":memory:")
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
@@ -138,8 +132,6 @@ func (c *devCmd) Run() error {
 		return serveHTTP(ctx, c.Addr, requestLog(gw.Handler(), log, os.Stderr), 5*time.Second)
 	}
 
-	// Serve in the background and stop once the agent exits, so one command
-	// covers the whole test loop.
 	agentCtx, stopServing := context.WithCancel(ctx)
 	defer stopServing()
 
@@ -192,7 +184,6 @@ type splitArgs struct {
 	publicURL   string
 	handler     http.Handler
 
-	// serveCtx is cancelled by stopServing once the tmux session ends.
 	serveCtx    context.Context
 	stopServing context.CancelFunc
 }
@@ -214,19 +205,13 @@ func (c *devCmd) runSplit(ctx context.Context, a splitArgs) error {
 			fmt.Fprintf(os.Stderr, "tine: close log: %v\n", closeErr)
 		}
 	}()
-	// context.WithoutCancel so teardown still runs once ctx is cancelled.
 	defer a.session.Kill(context.WithoutCancel(ctx))
 
-	// A signal to tine must take the tmux session with it, or the panes would
-	// outlive the server they are attached to.
 	go func() {
 		<-ctx.Done()
 		a.session.Kill(context.WithoutCancel(ctx))
 	}()
 
-	// Rebind the logger now that the log pane exists and is reading. The pane is
-	// narrow, so timestamps are dropped: they cost a third of the width and the
-	// interesting thing is the sequence, not the wall clock.
 	paneLog := slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
@@ -237,8 +222,6 @@ func (c *devCmd) runSplit(ctx context.Context, a splitArgs) error {
 		},
 	}))
 
-	// The header is written before the server starts, so it always leads the
-	// pane rather than racing the first request.
 	var header strings.Builder
 	fmt.Fprintf(&header, "tine  %s %s\n%s\nauth disabled\n\n%d tools\n",
 		a.integration, a.version, a.url, len(a.tools))
@@ -308,13 +291,8 @@ func (c *devCmd) splitting() bool {
 
 // requestLog reports each MCP call: the tool, its arguments, and a truncated
 // view of what came back.
-//
-// Every MCP request is a POST to the same path, so path and status say almost
-// nothing. What matters when developing an integration is what the agent asked
-// for and what it received.
 func requestLog(next http.Handler, log *slog.Logger, out io.Writer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// tine's own readiness probe is not agent traffic.
 		if r.URL.Path == "/healthz" {
 			next.ServeHTTP(w, r)
 			return
@@ -328,7 +306,6 @@ func requestLog(next http.Handler, log *slog.Logger, out io.Writer) http.Handler
 
 		took := time.Since(start).Round(time.Millisecond)
 
-		// Anything that is not a tool call is a one-line protocol event.
 		if call.tool == "" {
 			label := call.method
 			if label == "" {
@@ -351,8 +328,6 @@ func requestLog(next http.Handler, log *slog.Logger, out io.Writer) http.Handler
 		}
 		fmt.Fprintf(&entry, "  -> %s %s\n", status, truncate(result, maxLoggedResult))
 
-		// A failed write to the log pane is not worth failing a request over,
-		// but it should not vanish either.
 		if _, err := io.WriteString(out, entry.String()); err != nil {
 			log.Warn("write to log pane", slog.Any("error", err))
 		}
@@ -387,7 +362,6 @@ func describeCall(r *http.Request) mcpCall {
 	if err != nil {
 		return mcpCall{}
 	}
-	// The handler still needs the body, so hand back what was consumed.
 	r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), r.Body))
 
 	var parsed struct {
@@ -409,13 +383,8 @@ func describeCall(r *http.Request) mcpCall {
 
 // decodeResult extracts a tool result from a response and reports whether the
 // tool failed.
-//
-// A failing tool still returns HTTP 200 with isError set, because the JSON-RPC
-// call itself succeeded. Reading the status alone would report every failure as
-// a success.
 func decodeResult(body []byte) (string, bool) {
 	payload := body
-	// Streamable HTTP wraps the payload in an SSE frame.
 	if line, ok := sseData(body); ok {
 		payload = line
 	}
@@ -495,7 +464,6 @@ func (r *responseRecorder) WriteHeader(status int) {
 }
 
 func (r *responseRecorder) Write(b []byte) (int, error) {
-	// Bounded: a large result must not be held in memory in full.
 	if r.body.Len() < maxLoggedBody {
 		r.body.Write(b)
 	}

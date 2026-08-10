@@ -56,8 +56,6 @@ func (*serveCmd) Run() error {
 			slog.String("subject", cfg.DevSubject))
 		auth = gateway.NewDevAuthenticator(cfg.DevSubject, cfg.PublicURL)
 	} else {
-		// Discovery reaches the identity provider, so a wrong issuer fails here
-		// rather than on the first request.
 		auth, err = gateway.NewOIDCAuthenticator(ctx, cfg.OIDCIssuer, cfg.OIDCAudience, cfg.PublicURL)
 		if err != nil {
 			return fmt.Errorf("oidc: %w", err)
@@ -67,16 +65,12 @@ func (*serveCmd) Run() error {
 	reg := registry()
 	log.Info("integrations registered", slog.Int("count", len(reg.All())))
 
-	// One client for all upstream calls, so connection pooling and timeouts
-	// apply uniformly and an integration cannot opt out of them.
 	upstream := &http.Client{Timeout: 30 * time.Second}
 
 	gw := gateway.New(db, gateway.NewIntegrationBuilder(reg, db, db, upstream), auth, log)
 
-	// The gateway owns /{user}/{integration}/{id}; the interface owns
-	// everything else, including the more specific /new and action routes.
 	mux := http.NewServeMux()
-	mux.Handle("/", gw.Handler())
+	gw.Routes(mux)
 
 	if cfg.WebEnabled() {
 		secret, secretErr := web.ParseSecret(cfg.SessionSecret)
@@ -152,9 +146,6 @@ func serveHTTP(ctx context.Context, addr string, handler http.Handler, timeout t
 	case <-ctx.Done():
 	}
 
-	// Deliberately not derived from ctx: ctx is already cancelled at this point,
-	// so inheriting it would cancel the drain immediately and drop in-flight
-	// requests instead of letting them finish.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 

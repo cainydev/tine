@@ -59,7 +59,6 @@ func parseEnvLine(line string) (string, string, error) {
 		return "", "", nil
 	}
 
-	// `export KEY=value` is common in files meant to be sourced by a shell.
 	trimmed = strings.TrimPrefix(trimmed, "export ")
 
 	key, value, ok := strings.Cut(trimmed, "=")
@@ -73,7 +72,6 @@ func parseEnvLine(line string) (string, string, error) {
 	}
 
 	value = strings.TrimSpace(value)
-	// Quotes are stripped so a value containing spaces can be written naturally.
 	if len(value) >= 2 {
 		if (value[0] == '"' && value[len(value)-1] == '"') ||
 			(value[0] == '\'' && value[len(value)-1] == '\'') {

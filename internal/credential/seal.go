@@ -18,11 +18,6 @@ const MasterKeySize = 32
 var ErrWrongKey = errors.New("credential sealed with a different key")
 
 // Sealed is an encrypted credential payload as stored.
-//
-// Envelope encryption: the payload is sealed under a per-record data key, and
-// that data key is itself sealed under the master key. Rotation therefore
-// rewrites only the small wrapped keys, never the payloads, and a single leaked
-// data key exposes exactly one credential.
 type Sealed struct {
 	Ciphertext []byte
 	Nonce      []byte
@@ -49,10 +44,6 @@ func NewSealer(hexKey string) (*Sealer, error) {
 func (s *Sealer) KeyID() string { return s.keyID }
 
 // Seal encrypts plaintext under a fresh data key.
-//
-// The stored ciphertext is the wrapped data key followed by the payload
-// ciphertext; both are sealed with AES-GCM, which authenticates as well as
-// encrypts, so tampering is detected on open rather than silently accepted.
 func (s *Sealer) Seal(plaintext []byte) (*Sealed, error) {
 	dataKey := make([]byte, MasterKeySize)
 	if _, err := io.ReadFull(rand.Reader, dataKey); err != nil {
@@ -79,9 +70,6 @@ func (s *Sealer) Seal(plaintext []byte) (*Sealed, error) {
 	}
 	wrappedKey := masterAEAD.Seal(nil, wrapNonce, dataKey, nil)
 
-	// Layout: [2-byte wrapped key length][wrapped key][payload ciphertext].
-	// The nonces travel together in Nonce as [wrap nonce][payload nonce], both
-	// fixed-size for this AEAD.
 	out := make([]byte, 0, 2+len(wrappedKey)+len(payload))
 	out = append(out, byte(len(wrappedKey)>>8), byte(len(wrappedKey)))
 	out = append(out, wrappedKey...)
@@ -158,9 +146,6 @@ func randomNonce(size int) ([]byte, error) {
 }
 
 // keyIDFor derives a stable, non-secret identifier for a key.
-//
-// It is a truncated hash of the key, so it identifies the key without revealing
-// it, and two deployments holding the same key agree on the id.
 func keyIDFor(key []byte) string {
 	sum := sha256.Sum256(key)
 	return hex.EncodeToString(sum[:8])

@@ -22,63 +22,32 @@ import (
 )
 
 // Integration describes one API that tine can expose as an MCP endpoint.
-//
-// A single Integration definition serves every instance of it; per-instance
-// state arrives through Bind, so implementations must not hold instance data on
-// themselves.
 type Integration interface {
-	// Slug is the stable identifier used in the endpoint path and in the
-	// database. It must never change once published.
 	Slug() string
 
-	// Name is the human-readable title.
 	Name() string
 
-	// Version identifies the tool surface. Bump it when tools are added,
-	// removed, or their schemas change.
 	Version() string
 
-	// Params describes the instance-level settings this integration accepts
-	// (region, scope, base URL overrides). Used to validate configuration
-	// before an instance is created.
 	Params() []ParamSpec
 
-	// Credentials lists the credential kinds this integration can use, most
-	// preferred first. An interface offering a kind an integration cannot use
-	// would only produce a failure at request time.
 	Credentials() []credential.Kind
 
-	// Bind produces the tool set for one configured instance. It runs on every
-	// request in stateless mode, so it must be cheap: build tool definitions,
-	// do not dial upstream.
 	Bind(ctx context.Context, b *Binding) ([]Tool, error)
 }
 
 // Binding is everything an integration needs to serve one instance.
 type Binding struct {
-	// InstanceID is the stable public identifier of this endpoint.
 	InstanceID string
 
-	// Params holds the instance's configured settings, already validated
-	// against the integration's ParamSpecs.
 	Params map[string]string
 
-	// Credential authenticates outbound requests. Never nil; an integration
-	// needing no auth receives one of kind none.
 	Credential credential.Credential
 
-	// HTTP is the client integrations must use for upstream calls. It carries
-	// tine's timeouts and instrumentation, so a hand-rolled client would escape
-	// both.
 	HTTP *http.Client
 }
 
 // Tool is one callable exposed by an integration.
-//
-// Register is a closure rather than a data structure because the SDK's generic
-// AddTool infers the JSON Schema from the handler's Go types. That keeps tool
-// parameters type-safe instead of hand-written schema that can drift from the
-// code.
 type Tool struct {
 	Name     string
 	Register func(*mcp.Server)
@@ -91,7 +60,6 @@ type ParamSpec struct {
 	Required    bool
 	Default     string
 
-	// Enum, when non-empty, restricts accepted values.
 	Enum []string
 }
 
@@ -107,9 +75,6 @@ func NewRegistry() *Registry {
 }
 
 // Register adds an integration.
-//
-// It returns an error rather than panicking on a duplicate slug so that a
-// mistake surfaces at startup with a clear message instead of at init time.
 func (r *Registry) Register(in Integration) error {
 	slug := in.Slug()
 	if slug == "" {
@@ -153,10 +118,6 @@ func AcceptsCredential(in Integration, kind credential.Kind) bool {
 
 // ValidateParams checks an instance's settings against an integration's specs
 // and returns them with defaults applied.
-//
-// Unknown keys are rejected: a typo in a parameter name would otherwise be
-// silently ignored and the instance would run with a default the user did not
-// intend.
 func ValidateParams(in Integration, params map[string]string) (map[string]string, error) {
 	specs := in.Params()
 	known := make(map[string]ParamSpec, len(specs))

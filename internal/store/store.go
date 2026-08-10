@@ -24,8 +24,6 @@ type Store struct {
 	db      *sql.DB
 	queries *sqlc.Queries
 
-	// sealer opens and seals credential payloads. Nil until WithSealer is
-	// called, so the database can be migrated without key material present.
 	sealer *credential.Sealer
 }
 
@@ -46,9 +44,6 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	// SQLite allows one writer at a time. Serialising through a single
-	// connection avoids lock contention that would otherwise surface as
-	// SQLITE_BUSY under concurrent writes.
 	db.SetMaxOpenConns(1)
 
 	if err := db.PingContext(ctx); err != nil {

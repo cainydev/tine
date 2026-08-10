@@ -51,9 +51,6 @@ func (b *IntegrationBuilder) Build(ctx context.Context, inst *Instance) (*mcp.Se
 		return nil, fmt.Errorf("integration %q is not registered", inst.IntegrationSlug)
 	}
 
-	// The stored version is the one the instance was created against. A binary
-	// shipping a different version may have a different tool surface, so this
-	// is worth refusing rather than silently serving something else.
 	if got := in.Version(); got != inst.Version {
 		return nil, fmt.Errorf("integration %q is version %s, instance expects %s",
 			inst.IntegrationSlug, got, inst.Version)

@@ -34,9 +34,6 @@ func clientConfig(name, url string) ([]byte, error) {
 }
 
 // agentCommandFor resolves how to launch an agent against one endpoint.
-//
-// The configuration is passed on the command line rather than written to disk,
-// so a dev run leaves nothing behind.
 func agentCommandFor(agent, name, url string) (agentCommand, error) {
 	config, err := clientConfig(name, url)
 	if err != nil {
@@ -49,8 +46,6 @@ func agentCommandFor(agent, name, url string) (agentCommand, error) {
 		if err != nil {
 			return agentCommand{}, fmt.Errorf("claude is not on PATH: %w", err)
 		}
-		// --strict-mcp-config so the session sees this endpoint and nothing
-		// else, which is the point of testing one integration in isolation.
 		return agentCommand{
 			path: path,
 			args: []string{"--strict-mcp-config", "--mcp-config", string(config)},
@@ -75,8 +70,6 @@ func launchAgent(ctx context.Context, agent, name, url string) error {
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			// The agent exited non-zero, which is its business, not a tine
-			// failure.
 			return nil
 		}
 		return fmt.Errorf("launch %s: %w", agent, err)

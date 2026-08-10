@@ -239,8 +239,6 @@ func (s *Server) saveCredential(w http.ResponseWriter, r *http.Request, u *User)
 		BaseURL:      instance.Params["base_url"],
 	}
 
-	// The form only offers accepted kinds, but a submitted value must be checked
-	// too: hiding an option is presentation, not enforcement.
 	if !integrations.AcceptsCredential(integration, credential.Kind(input.Kind)) {
 		s.render(w, r, views.InstanceDetail(s.nav(u),
 			s.viewInstance(u, *instance),
@@ -286,8 +284,6 @@ func (s *Server) lookup(r *http.Request, u *User) (*Instance, integrations.Integ
 		return nil, nil, err
 	}
 
-	// The integration segment must match the stored one, so a correct id under
-	// the wrong integration does not resolve.
 	if instance.IntegrationSlug != r.PathValue("integration") {
 		return nil, nil, nil
 	}
@@ -304,7 +300,6 @@ func (s *Server) instancePath(u *User, in Instance) string {
 }
 
 func (s *Server) viewInstance(u *User, in Instance) views.Instance {
-	// The interface offers only the credential kinds the integration can use.
 	var kinds []string
 	if integration, ok := s.registry.Get(in.IntegrationSlug); ok {
 		for _, k := range integration.Credentials() {

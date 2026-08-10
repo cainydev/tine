@@ -23,17 +23,12 @@ var staticFS embed.FS
 func staticSub() fs.FS {
 	sub, err := fs.Sub(staticFS, "static")
 	if err != nil {
-		// The directory is embedded at build time, so this cannot fail at run
-		// time; a panic here would mean the binary was built wrong.
 		panic(err)
 	}
 	return sub
 }
 
 // Store is the persistence the interface needs.
-//
-// Defined here rather than in the store package because the interface is the
-// consumer, and it needs only this much.
 type Store interface {
 	UserBySubject(ctx context.Context, subject string) (*User, error)
 	CreateUser(ctx context.Context, subject, userSlug, email string) (*User, error)
@@ -90,14 +85,10 @@ type CredentialInput struct {
 	Username   string
 	Password   string
 
-	// OAuth2 client credentials. TokenURL may be empty, in which case the
-	// integration derives it from the instance's own settings.
 	ClientID     string
 	ClientSecret string
 	TokenURL     string
 
-	// BaseURL is the instance's configured base url, so a credential that needs
-	// a token endpoint can derive one.
 	BaseURL string
 }
 
@@ -128,11 +119,6 @@ func NewServer(store Store, registry *integrations.Registry, auth *Authenticator
 // matched before an instance id could shadow it. Instance ids are hex, so one
 // can never be the literal "new".
 func (s *Server) Routes(mux *http.ServeMux) {
-	// Assets are served from a two-segment pattern with a named final segment.
-	// ServeMux compares patterns structurally and cannot tell that a slug never
-	// equals "static", so /static/... would be ambiguous against
-	// /{user}/{integration}. Matching exactly one file name is unambiguous, and
-	// the interface serves only a handful of assets.
 	mux.Handle("GET /static/{file}", http.StripPrefix("/static/", http.FileServerFS(staticSub())))
 
 	mux.HandleFunc("GET /{$}", s.home)
@@ -141,8 +127,6 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /logout", s.logout)
 
 	mux.HandleFunc("GET /settings", s.page(s.settings))
-	// Not wrapped in page: this is what creates the account, so requiring an
-	// existing one would make it unreachable.
 	mux.HandleFunc("POST /settings/username", s.claimUsername)
 	mux.HandleFunc("GET /integrations", s.page(s.integrationList))
 
@@ -174,8 +158,6 @@ func (s *Server) page(h handler) http.HandlerFunc {
 
 		user, err := s.store.UserBySubject(ctx, session.Subject)
 		if errors.Is(err, ErrNoUser) {
-			// Signed in but with no account yet: the username has to be chosen
-			// before anything can be created under it.
 			s.chooseUsername(w, r, session, "")
 			return
 		}
@@ -184,7 +166,6 @@ func (s *Server) page(h handler) http.HandlerFunc {
 			return
 		}
 
-		// A user may only act under their own path segment.
 		if pathUser := r.PathValue("user"); pathUser != "" && pathUser != user.Slug {
 			http.NotFound(w, r)
 			return
@@ -251,9 +232,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.auth.Complete(r.Context(), w, r); err != nil {
-		// Not a redirect back to /login: that would start the flow again and
-		// loop silently on a persistent failure. The reason is safe to show,
-		// since it describes the exchange rather than any secret.
 		s.log.WarnContext(r.Context(), "login failed", slog.Any("error", err))
 		s.render(w, r, views.LoginFailed(err.Error()))
 		return

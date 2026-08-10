@@ -73,7 +73,6 @@ func TestValidateUserRejectsReserved(t *testing.T) {
 			if err := ValidateUser(name); err == nil {
 				t.Errorf("ValidateUser(%q) = nil, want an error", name)
 			}
-			// The same name is fine for anything not in the first path segment.
 			if err := Validate("slug", name); err != nil {
 				t.Errorf("Validate(%q) = %v, want nil", name, err)
 			}
@@ -108,7 +107,6 @@ func TestSuggest(t *testing.T) {
 			if got != tc.want {
 				t.Errorf("Suggest(%q) = %q, want %q", tc.input, got, tc.want)
 			}
-			// Whatever comes back must itself be valid.
 			if got != "" {
 				if err := Validate("slug", got); err != nil {
 					t.Errorf("Suggest(%q) produced an invalid slug %q: %v", tc.input, got, err)
@@ -127,7 +125,6 @@ func TestSuggestTruncatesCleanly(t *testing.T) {
 	if len(got) > MaxLength {
 		t.Errorf("Suggest returned %d characters, over the %d limit", len(got), MaxLength)
 	}
-	// Truncation must not leave a trailing hyphen, which would be invalid.
 	if err := Validate("slug", got); err != nil {
 		t.Errorf("truncated suggestion is invalid: %v", err)
 	}

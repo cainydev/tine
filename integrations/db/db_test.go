@@ -215,8 +215,6 @@ func TestOutputSchemasAreObjects(t *testing.T) {
 		tool.Register(srv)
 	}
 
-	// Ask the server itself what it advertises, so the assertion runs against
-	// the schema a client actually receives.
 	listed, err := listTools(t, srv)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)

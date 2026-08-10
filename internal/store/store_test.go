@@ -89,7 +89,6 @@ func TestResolve(t *testing.T) {
 	}{
 		{"exact match", "john", "shopware", id, nil},
 		{"unknown id", "john", "shopware", "nope", gateway.ErrNotFound},
-		// The id alone must not be enough: the whole path identifies the instance.
 		{"wrong user", "nobody", "shopware", id, gateway.ErrNotFound},
 		{"wrong integration", "john", "billbee", id, gateway.ErrNotFound},
 	}

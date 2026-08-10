@@ -107,7 +107,6 @@ func (s *fakeStore) authorized(r *http.Request) bool {
 
 	if s.rejectNext {
 		s.rejectNext = false
-		// The store also rotates, so a refresh produces a different token.
 		s.current = "token-2"
 		return false
 	}
@@ -179,7 +178,6 @@ func TestRefreshesOnUnauthorized(t *testing.T) {
 	store := newFakeStore(t)
 	c := newTestClient(t, store)
 
-	// Prime the cache so the first token is in hand.
 	var first struct {
 		Total int `json:"total"`
 	}

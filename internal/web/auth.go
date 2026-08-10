@@ -30,30 +30,15 @@ const (
 var ErrNoSession = errors.New("no session")
 
 // Authenticator signs users in to the web interface.
-//
-// It speaks plain OIDC rather than any provider's SDK, so the same code works
-// against WorkOS, Zitadel, Authentik, Keycloak or anything else that publishes
-// a discovery document. The provider is a configuration value, not a
-// dependency.
-//
-// This is separate from the MCP resource server: a browser carries a session
-// cookie while an MCP client presents a bearer token on every request. They
-// share only the issuer, and therefore the subject claim that ties a session to
-// the instances it owns.
 type Authenticator struct {
 	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
 	oauth    *oauth2.Config
 
-	// secret signs session and state cookies.
 	secret []byte
 
 	secureCookies bool
 
-	// authParams are extra query parameters added to the authorization request.
-	// Some providers need one to select which login experience to show: WorkOS
-	// requires provider=authkit, and without it returns
-	// invalid-connection-selector.
 	authParams []oauth2.AuthCodeOption
 }
 
@@ -64,16 +49,10 @@ type AuthConfig struct {
 	ClientSecret string
 	RedirectURL  string
 
-	// Secret signs session cookies. Losing it signs everyone out; leaking it
-	// lets anyone forge a session.
 	Secret []byte
 
-	// SecureCookies marks cookies Secure. Off for local http, on everywhere
-	// else.
 	SecureCookies bool
 
-	// AuthParams are extra key=value pairs appended to the authorization URL,
-	// for providers that need one to select a login method.
 	AuthParams map[string]string
 }
 
@@ -133,10 +112,6 @@ type Session struct {
 }
 
 // Start sends a browser to the identity provider.
-//
-// A random state is stored in a short-lived signed cookie and checked on the
-// way back, which is what stops another site from completing a login on the
-// user's behalf.
 func (a *Authenticator) Start(w http.ResponseWriter, r *http.Request) (string, error) {
 	state, err := randomString()
 	if err != nil {
@@ -145,8 +120,6 @@ func (a *Authenticator) Start(w http.ResponseWriter, r *http.Request) (string, e
 
 	verifier := oauth2.GenerateVerifier()
 
-	// State and PKCE verifier travel together, signed so neither can be
-	// tampered with between requests.
 	payload := state + "|" + verifier
 	a.setCookie(w, stateCookie, a.sign(payload), stateLifetime)
 
@@ -194,11 +167,6 @@ func (a *Authenticator) Complete(ctx context.Context, w http.ResponseWriter, r *
 }
 
 // sessionFromToken reads the signed-in identity out of a token response.
-//
-// An OIDC provider returns an id_token, which is the standard and is preferred.
-// Some providers that are OAuth2 with a JWKS rather than full OIDC, WorkOS
-// among them, return only an access token plus a user object; for those the
-// access token carries the same claims, so it is verified and read instead.
 func (a *Authenticator) sessionFromToken(ctx context.Context, token *oauth2.Token) (*Session, error) {
 	if raw, ok := token.Extra("id_token").(string); ok && raw != "" {
 		verified, err := a.verifier.Verify(ctx, raw)
@@ -219,9 +187,6 @@ func (a *Authenticator) sessionFromToken(ctx context.Context, token *oauth2.Toke
 		return nil, errors.New("provider returned neither an id token nor an access token")
 	}
 
-	// The access token is not addressed to this client, so the audience check
-	// does not apply. Its signature and expiry still do, and the issuer's keys
-	// are what establish trust.
 	verifier := a.provider.Verifier(&oidc.Config{SkipClientIDCheck: true})
 
 	verified, err := verifier.Verify(ctx, token.AccessToken)
@@ -236,8 +201,6 @@ func (a *Authenticator) sessionFromToken(ctx context.Context, token *oauth2.Toke
 		return nil, fmt.Errorf("read access token claims: %w", err)
 	}
 
-	// Some providers put the address on the token response rather than in the
-	// token itself.
 	if claims.Email == "" {
 		if email, ok := token.Extra("email").(string); ok {
 			claims.Email = email
@@ -322,8 +285,6 @@ func (a *Authenticator) verify(signed string) (string, bool) {
 	mac := hmac.New(sha256.New, a.secret)
 	mac.Write(payload)
 
-	// hmac.Equal is constant time, so a forged signature cannot be found by
-	// timing repeated attempts.
 	if !hmac.Equal(got, mac.Sum(nil)) {
 		return "", false
 	}
@@ -376,7 +337,6 @@ func GenerateSecret() (string, error) {
 func ParseSecret(s string) ([]byte, error) {
 	b, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
-		// A raw string is accepted too, so an operator can set any long value.
 		if len(s) >= 32 {
 			return []byte(s), nil
 		}

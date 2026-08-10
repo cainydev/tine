@@ -26,6 +26,15 @@ Owner: @cainydev. Domain: cainy.dev.
 Go 1.26 (Arch, current stable). Track the current stable release; do not pin to
 old language versions for compatibility with anything.
 
+- **Comments are for the reader, not the author.** Doc comments on exported
+  identifiers, in the standard `// Name ...` form. Beyond that, comment only
+  what a competent reader cannot derive from the code: an external constraint
+  (Shopware tokens last ten minutes), a spec requirement (MCP output schemas
+  must be objects), a non-obvious property of a dependency (SQLite enables
+  foreign keys per connection). Never narrate what the code does, never record
+  what went wrong while writing it, and never justify a decision to an imagined
+  reviewer. If a line seems to need explaining, prefer a clearer name or a
+  smaller function.
 - **Idiomatic over clever.** Follow Effective Go and the standard library's own
   style. If the stdlib solves it, use the stdlib.
 - **No unmaintained dependencies.** Before adding one, check its last release and

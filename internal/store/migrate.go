@@ -10,9 +10,6 @@ import (
 )
 
 // migrate applies every migration not yet recorded, in filename order.
-//
-// Migrations are embedded and applied at startup so a self-hosted deployment is
-// a single binary with no separate migration step.
 func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -26,7 +23,6 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list migrations: %w", err)
 	}
-	// fs.Glob sorts its results, so the numeric filename prefix determines order.
 
 	for _, name := range names {
 		applied, err := s.isApplied(ctx, name)
@@ -75,8 +71,6 @@ func (s *Store) apply(ctx context.Context, name string) error {
 		return fmt.Errorf("begin: %w", err)
 	}
 	defer func() {
-		// Rollback after a successful Commit returns ErrTxDone, which is not a
-		// failure worth reporting.
 		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
 			_ = err
 		}
@@ -93,10 +87,6 @@ func (s *Store) apply(ctx context.Context, name string) error {
 }
 
 // upSection returns the statements between the goose Up and Down markers.
-//
-// The files use goose's comment format so they stay compatible with the goose
-// CLI for manual inspection, but tine applies them itself rather than depending
-// on an external tool at runtime.
 func upSection(body string) (string, error) {
 	const (
 		upMarker   = "-- +goose Up"

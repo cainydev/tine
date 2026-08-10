@@ -9,9 +9,6 @@ import (
 
 // Pattern is the one rule for every slug: lowercase letters, digits and
 // hyphens, starting and ending with a letter or digit.
-//
-// A single character class keeps URLs unambiguous and case-insensitive
-// comparison unnecessary, so two slugs are equal exactly when their bytes are.
 var Pattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 const (
@@ -38,9 +35,6 @@ var reserved = map[string]bool{
 }
 
 // Validate reports whether s is a usable slug.
-//
-// The kind names what is being validated, so the error says which field is
-// wrong rather than only that something is.
 func Validate(kind, s string) error {
 	switch {
 	case s == "":
@@ -56,9 +50,6 @@ func Validate(kind, s string) error {
 }
 
 // ValidateUser reports whether s is a usable user slug.
-//
-// User slugs occupy the first path segment, so they additionally cannot take a
-// name that tine routes itself.
 func ValidateUser(s string) error {
 	if err := Validate("username", s); err != nil {
 		return err
@@ -79,7 +70,7 @@ func Reserved(s string) bool {
 // usable remains.
 func Suggest(text string) string {
 	var b strings.Builder
-	lastHyphen := true // leading hyphens are dropped
+	lastHyphen := true
 
 	for _, r := range strings.ToLower(text) {
 		switch {
