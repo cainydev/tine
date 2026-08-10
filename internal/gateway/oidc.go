@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 )
@@ -27,7 +29,8 @@ type Authenticator interface {
 
 // OIDCAuthenticator validates JWTs against an OIDC provider's JWKS.
 type OIDCAuthenticator struct {
-	verifier *oidc.IDTokenVerifier
+	verifier  *oidc.IDTokenVerifier
+	audiences []string
 
 	resourceURL string
 
@@ -43,10 +46,29 @@ func NewOIDCAuthenticator(ctx context.Context, issuer, audience, resourceURL str
 	}
 
 	return &OIDCAuthenticator{
-		verifier:     provider.Verifier(&oidc.Config{ClientID: audience}),
+		verifier:     provider.Verifier(&oidc.Config{SkipClientIDCheck: true}),
+		audiences:    expectedAudiences(resourceURL, audience),
 		resourceURL:  resourceURL,
 		authzServers: []string{issuer},
 	}, nil
+}
+
+// expectedAudiences lists the values a token may carry for this server.
+//
+// An MCP client requests a token for a resource (RFC 8707) and the authorization
+// server sets that resource as the audience, so the resource identifier is the
+// value to expect. Both spellings of the identifier are accepted because
+// authorization servers differ over the trailing slash. The configured audience
+// is also accepted, which covers tokens minted for tine as an OAuth client
+// rather than as a resource.
+func expectedAudiences(resourceURL, audience string) []string {
+	trimmed := strings.TrimRight(resourceURL, "/")
+
+	out := []string{trimmed, trimmed + "/"}
+	if audience != "" {
+		out = append(out, audience)
+	}
+	return out
 }
 
 // Authenticate verifies the request's bearer token and returns its subject.
@@ -63,7 +85,21 @@ func (a *OIDCAuthenticator) Authenticate(ctx context.Context, r *http.Request) (
 	if tok.Subject == "" {
 		return "", fmt.Errorf("%w: token has no subject", ErrUnauthenticated)
 	}
+	if !hasAudience(tok.Audience, a.audiences) {
+		return "", fmt.Errorf("%w: token audience %v names none of %v",
+			ErrUnauthenticated, tok.Audience, a.audiences)
+	}
 	return tok.Subject, nil
+}
+
+// hasAudience reports whether a token names one of the accepted audiences.
+func hasAudience(got, accepted []string) bool {
+	for _, a := range got {
+		if slices.Contains(accepted, a) {
+			return true
+		}
+	}
+	return false
 }
 
 // challenge writes the 401 that starts an MCP client's OAuth flow.

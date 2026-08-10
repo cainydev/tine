@@ -229,3 +229,48 @@ func TestChallengeAdvertisesResourceMetadata(t *testing.T) {
 		t.Errorf("WWW-Authenticate = %q, want %q", got, want)
 	}
 }
+
+// An MCP client requests a token for a resource (RFC 8707), so the audience is
+// the resource identifier rather than a client id.
+func TestAcceptsResourceAsAudience(t *testing.T) {
+	t.Parallel()
+
+	ti := newTestIssuer(t)
+	auth := newTestAuthenticator(t, ti, "tine")
+
+	for _, aud := range []string{
+		"https://tine.example",
+		"https://tine.example/",
+		"tine",
+	} {
+		t.Run(aud, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/x", nil)
+			req.Header.Set("Authorization", "Bearer "+ti.token(t, "user-1", aud, time.Now().Add(time.Hour)))
+
+			subject, err := auth.Authenticate(t.Context(), req)
+			if err != nil {
+				t.Fatalf("audience %q rejected: %v", aud, err)
+			}
+			if subject != "user-1" {
+				t.Errorf("subject = %q, want user-1", subject)
+			}
+		})
+	}
+}
+
+// A token minted for a different resource must not be accepted here.
+func TestRejectsForeignAudience(t *testing.T) {
+	t.Parallel()
+
+	ti := newTestIssuer(t)
+	auth := newTestAuthenticator(t, ti, "tine")
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/x", nil)
+	req.Header.Set("Authorization", "Bearer "+ti.token(t, "user-1", "https://other.example", time.Now().Add(time.Hour)))
+
+	if _, err := auth.Authenticate(t.Context(), req); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("error = %v, want ErrUnauthenticated", err)
+	}
+}
