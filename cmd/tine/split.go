@@ -18,6 +18,8 @@ type splitSession struct {
 	logPath    string
 	configPath string
 	dir        string
+
+	cleanupWorkdir func()
 }
 
 // newSplitSession creates the file the log pane follows and the tmux
@@ -73,8 +75,11 @@ func tmuxConfig() string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// Close removes the session directory.
+// Close removes the session directory and the agent's working directory.
 func (s *splitSession) Close() error {
+	if s.cleanupWorkdir != nil {
+		s.cleanupWorkdir()
+	}
 	if err := os.RemoveAll(s.dir); err != nil {
 		return fmt.Errorf("remove session directory: %w", err)
 	}
@@ -97,16 +102,22 @@ func (s *splitSession) Start(ctx context.Context, agent agentCommand, logPercent
 	}
 	wrapped := strings.Join(quoted, " ") + "; tmux kill-session -t " + shellQuote(s.name)
 
-	args := []string{"-f", s.configPath, "new-session", "-d", "-s", s.name, "-n", "tine"}
-	if w, h, err := terminalSize(); err == nil {
+	workdir, cleanup, err := scratchDir()
+	if err != nil {
+		return nil, err
+	}
+	s.cleanupWorkdir = cleanup
+
+	args := []string{"-f", s.configPath, "new-session", "-d", "-s", s.name, "-n", "tine", "-c", workdir}
+	if w, h, sizeErr := terminalSize(); sizeErr == nil {
 		args = append(args, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h))
 	}
 	args = append(args, "--", "sh", "-c", wrapped)
 
 	create := exec.CommandContext(ctx, "tmux", args...) //nolint:gosec // fixed program, generated arguments
 	create.Env = append(os.Environ(), "COLORTERM=truecolor")
-	if out, err := create.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("create tmux session: %w: %s", err, out)
+	if out, createErr := create.CombinedOutput(); createErr != nil {
+		return nil, fmt.Errorf("create tmux session: %w: %s", createErr, out)
 	}
 
 	logPane := exec.CommandContext(ctx, "tmux",
@@ -115,13 +126,13 @@ func (s *splitSession) Start(ctx context.Context, agent agentCommand, logPercent
 		"-t", s.name+":tine",
 		"--", "sh", "-c", "tail -n +1 -f "+shellQuote(s.logPath),
 	)
-	if out, err := logPane.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("split tmux window: %w: %s", err, out)
+	if out, paneErr := logPane.CombinedOutput(); paneErr != nil {
+		return nil, fmt.Errorf("split tmux window: %w: %s", paneErr, out)
 	}
 
-	w, err := os.OpenFile(s.logPath, os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open log file: %w", err)
+	w, openErr := os.OpenFile(s.logPath, os.O_WRONLY|os.O_APPEND, 0o600)
+	if openErr != nil {
+		return nil, fmt.Errorf("open log file: %w", openErr)
 	}
 	return w, nil
 }

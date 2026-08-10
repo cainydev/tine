@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 )
 
@@ -32,6 +33,30 @@ func clientConfig(name, url string) ([]byte, error) {
 		return nil, fmt.Errorf("encode client config: %w", err)
 	}
 	return out, nil
+}
+
+// scratchDir returns an empty directory for an agent to run in, and a function
+// that removes it.
+//
+// An agent reports its working directory to the model and reads project files
+// from it, so launching in place would put whatever happens to be in the current
+// directory in front of the model. The name is fixed and generic so the path
+// itself carries nothing either.
+func scratchDir() (string, func(), error) {
+	dir := filepath.Join(os.TempDir(), "mcp-session")
+
+	if err := os.RemoveAll(dir); err != nil {
+		return "", nil, fmt.Errorf("clear session directory: %w", err)
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return "", nil, fmt.Errorf("create session directory: %w", err)
+	}
+
+	return dir, func() {
+		if err := os.RemoveAll(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "tine: remove session directory: %v\n", err)
+		}
+	}, nil
 }
 
 // agentAuth is the OAuth client an agent registers as.
@@ -79,7 +104,14 @@ func launchAgent(ctx context.Context, agent, name, url string, auth agentAuth) e
 		return err
 	}
 
+	workdir, cleanup, err := scratchDir()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
 	cmd := exec.CommandContext(ctx, resolved.path, resolved.args...) //nolint:gosec // resolved from a fixed set
+	cmd.Dir = workdir
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
