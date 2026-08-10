@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/cainydev/tine/internal/config"
@@ -12,6 +13,10 @@ type connectCmd struct {
 	Instance string `arg:"" help:"Instance path, as user/integration/id, or a full endpoint URL."`
 	Launch   string `short:"l" enum:"claude,none" default:"claude" help:"Agent to launch. With none, the client configuration is printed instead."`
 	BaseURL  string `short:"b" help:"Base URL of the running server. Defaults to TINE_PUBLIC_URL."`
+
+	ClientID     string `help:"OAuth client the agent registers as. Defaults to TINE_AGENT_CLIENT_ID."`
+	ClientSecret string `help:"Secret for that client. Defaults to TINE_AGENT_CLIENT_SECRET."`
+	CallbackPort int    `default:"0" help:"Fixed port for the agent's OAuth callback, when the client has a pre-registered redirect URI."`
 }
 
 func (c *connectCmd) Run() error {
@@ -33,7 +38,20 @@ func (c *connectCmd) Run() error {
 	defer stop()
 
 	fmt.Printf("\n  %s\n\n", url)
-	return launchAgent(ctx, c.Launch, name, url)
+	return launchAgent(ctx, c.Launch, name, url, agentAuth{
+		ClientID:     firstNonEmpty(c.ClientID, os.Getenv("TINE_AGENT_CLIENT_ID")),
+		ClientSecret: firstNonEmpty(c.ClientSecret, os.Getenv("TINE_AGENT_CLIENT_SECRET")),
+		CallbackPort: c.CallbackPort,
+	})
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // endpoint resolves the instance argument to a full URL and a server name.

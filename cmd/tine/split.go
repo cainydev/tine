@@ -164,4 +164,6 @@ func shellQuote(s string) string {
 type agentCommand struct {
 	path string
 	args []string
+
+	secret string
 }

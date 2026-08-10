@@ -163,7 +163,7 @@ func (c *devCmd) Run() error {
 		return err
 	}
 
-	launchErr := launchAgent(ctx, c.Launch, in.Slug(), url)
+	launchErr := launchAgent(ctx, c.Launch, in.Slug(), url, agentAuth{})
 	stopServing()
 
 	if serveErr := <-served; serveErr != nil {
@@ -191,7 +191,7 @@ type splitArgs struct {
 // runSplit starts the tmux session, points the log at its second pane, and
 // serves until the session ends.
 func (c *devCmd) runSplit(ctx context.Context, a splitArgs) error {
-	agent, err := agentCommandFor(a.agent, a.name, a.url)
+	agent, err := agentCommandFor(a.agent, a.name, a.url, agentAuth{})
 	if err != nil {
 		return err
 	}
