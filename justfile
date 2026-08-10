@@ -59,6 +59,13 @@ secret: build
 env: build
     @./bin/tine env
 
+# Launch claude against an instance on a running server.
+#
+#   just launch john/deutsche-bahn/edc1e8b0b00b7e55
+#
+launch instance: build
+    ./bin/tine connect "$@"
+
 # Serve one integration locally with auth disabled.
 #
 #   just dev deutsche-bahn

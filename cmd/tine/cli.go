@@ -9,12 +9,13 @@ import (
 
 // cli is the complete command surface.
 type cli struct {
-	Serve  serveCmd  `cmd:"" default:"withargs" help:"Serve every configured instance. Reads its configuration from the environment."`
-	Dev    devCmd    `cmd:"" help:"Serve one integration locally with authentication disabled."`
-	Seed   seedCmd   `cmd:"" help:"Create a user and an integration instance."`
-	Genkey genkeyCmd `cmd:"" help:"Print a new master key for TINE_MASTER_KEY."`
-	Secret secretCmd `cmd:"" help:"Print a new session secret for TINE_SESSION_SECRET."`
-	Env    envCmd    `cmd:"" help:"Print a configuration template with fresh secrets."`
+	Serve   serveCmd   `cmd:"" default:"withargs" help:"Serve every configured instance. Reads its configuration from the environment."`
+	Dev     devCmd     `cmd:"" help:"Serve one integration locally with authentication disabled."`
+	Connect connectCmd `cmd:"" help:"Launch an agent against an instance on a running server."`
+	Seed    seedCmd    `cmd:"" help:"Create a user and an integration instance."`
+	Genkey  genkeyCmd  `cmd:"" help:"Print a new master key for TINE_MASTER_KEY."`
+	Secret  secretCmd  `cmd:"" help:"Print a new session secret for TINE_SESSION_SECRET."`
+	Env     envCmd     `cmd:"" help:"Print a configuration template with fresh secrets."`
 }
 
 // parse builds the kong context for tine's command surface.
