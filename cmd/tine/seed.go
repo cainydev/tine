@@ -1,85 +1,63 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
+	"log/slog"
+	"os"
 	"time"
 
 	"github.com/cainydev/tine/integrations"
-	dbint "github.com/cainydev/tine/integrations/db"
 	"github.com/cainydev/tine/internal/store"
 )
 
-// seed creates a user and one integration instance, printing the resulting
-// endpoint. It exists so a fresh deployment can be exercised before any admin
-// UI exists.
-func seed(args []string) error {
-	fs := flag.NewFlagSet("seed", flag.ContinueOnError)
-	var (
-		dbPath      = fs.String("db", "tine.db", "SQLite database path")
-		subject     = fs.String("subject", "", "OIDC subject of the owning user (required)")
-		userSlug    = fs.String("user", "", "user slug used in the endpoint path (required)")
-		email       = fs.String("email", "", "user email")
-		integration = fs.String("integration", "deutsche-bahn", "integration slug")
-		name        = fs.String("name", "", "display name for the instance")
-		params      = fs.String("params", "{}", "instance parameters as JSON")
-	)
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *subject == "" || *userSlug == "" {
-		fs.Usage()
-		return errors.New("-subject and -user are required")
-	}
+// seedCmd creates a user and one integration instance, printing the resulting
+// endpoint. It exists so a deployment can be exercised before an admin UI does.
+type seedCmd struct {
+	Integration string            `arg:"" help:"Integration to configure. Compiled in:${integrations}"`
+	Subject     string            `required:"" help:"OIDC subject of the owning user."`
+	User        string            `required:"" help:"User slug used in the endpoint path."`
+	Email       string            `help:"User email."`
+	Name        string            `help:"Display name for the instance. Defaults to the integration name."`
+	Param       map[string]string `short:"p" placeholder:"KEY=VALUE" help:"Instance parameter. Repeatable."`
+	Database    string            `short:"d" default:"tine.db" help:"SQLite database path."`
+}
 
-	registry := integrations.NewRegistry()
-	if err := registry.Register(dbint.New()); err != nil {
-		return err
-	}
-
-	in, ok := registry.Get(*integration)
+func (c *seedCmd) Run() error {
+	in, ok := registry().Get(c.Integration)
 	if !ok {
-		return fmt.Errorf("integration %q is not registered", *integration)
+		return fmt.Errorf("unknown integration %q, run `tine seed --help` to list them", c.Integration)
 	}
 
-	var rawParams map[string]string
-	if err := json.Unmarshal([]byte(*params), &rawParams); err != nil {
-		return fmt.Errorf("parse -params: %w", err)
-	}
-	validated, err := integrations.ValidateParams(in, rawParams)
+	params, err := integrations.ValidateParams(in, c.Param)
 	if err != nil {
 		return err
 	}
-	encoded, err := json.Marshal(validated)
+	encoded, err := json.Marshal(params)
 	if err != nil {
 		return fmt.Errorf("encode params: %w", err)
 	}
 
-	ctx := context.Background()
-	st, err := store.Open(ctx, *dbPath)
+	ctx, stop := signalContext()
+	defer stop()
+
+	db, err := store.Open(ctx, c.Database)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
-	defer func() {
-		if closeErr := st.Close(); closeErr != nil {
-			fmt.Fprintf(fs.Output(), "close store: %v\n", closeErr) //nolint:errcheck // best-effort diagnostic on shutdown
-		}
-	}()
+	defer closeStore(db, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
-	displayName := *name
+	displayName := c.Name
 	if displayName == "" {
 		displayName = in.Name()
 	}
 
-	instanceID, err := st.SeedInstance(ctx, store.SeedRequest{
-		Subject:            *subject,
-		UserSlug:           *userSlug,
-		Email:              *email,
+	id, err := db.SeedInstance(ctx, store.SeedRequest{
+		Subject:            c.Subject,
+		UserSlug:           c.User,
+		Email:              c.Email,
 		IntegrationSlug:    in.Slug(),
 		IntegrationName:    in.Name(),
 		IntegrationVersion: in.Version(),
@@ -92,7 +70,7 @@ func seed(args []string) error {
 		return err
 	}
 
-	fmt.Printf("instance created\n  endpoint: /%s/%s/%s\n", *userSlug, in.Slug(), instanceID)
+	fmt.Printf("/%s/%s/%s\n", c.User, in.Slug(), id)
 	return nil
 }
 

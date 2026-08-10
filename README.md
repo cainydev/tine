@@ -24,24 +24,38 @@ tine does not merge integrations behind a shared url, and does not expose
 early. the request path works: authentication, resolution, per-instance mcp
 servers, one integration. there is no admin ui yet.
 
+## trying it
+
+serves one integration with auth disabled, no database or key needed:
+
+```sh
+just dev deutsche-bahn
+just dev deutsche-bahn --param language=en
+```
+
+point an mcp client at the printed url.
+
 ## running
 
 ```sh
 go build -o bin/tine ./cmd/tine
 
-# 32-byte key that seals stored credentials. losing it means reauthenticating
+# 32-byte key sealing stored credentials. losing it means reauthenticating
 # every integration.
 ./bin/tine genkey
 
 # create a user and an instance
-./bin/tine seed -subject <oidc-subject> -user john -integration deutsche-bahn
+./bin/tine seed deutsche-bahn --subject <oidc-subject> --user john
 
 TINE_PUBLIC_URL=https://tine.example \
 TINE_OIDC_ISSUER=https://your-idp.example \
 TINE_OIDC_AUDIENCE=tine \
 TINE_MASTER_KEY=<from genkey> \
-./bin/tine
+./bin/tine serve
 ```
+
+`tine --help` lists every command, and each command's `--help` lists the
+integrations compiled into the binary along with their parameters.
 
 ### configuration
 

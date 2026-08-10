@@ -1,5 +1,7 @@
 # tine, task runner. `just` with no args lists everything.
 
+set positional-arguments
+
 default:
     @just --list
 
@@ -22,8 +24,7 @@ test:
 testfast:
     go test -shuffle=on ./...
 
-# Only what changed since last run (Go's build/test cache does the work).
-# Force a clean run with: just retest
+# Only what changed since last run. Force a clean run with: just retest
 retest:
     go clean -testcache && go test -race ./...
 
@@ -45,3 +46,16 @@ tidy:
 ci: fmt lint tidy
     go test -race -shuffle=on -count=1 ./...
     go build ./...
+
+# Serve one integration locally with auth disabled.
+#
+#   just dev deutsche-bahn
+#   just dev deutsche-bahn --param language=en
+#
+# Run `./bin/tine dev` with no arguments to list integrations.
+dev *args: build
+    ./bin/tine dev "$@"
+
+# Run the server as it runs in production, from the current environment.
+run *args: build
+    ./bin/tine "$@"

@@ -3,9 +3,11 @@ module github.com/cainydev/tine
 go 1.26.5
 
 require (
+	github.com/alecthomas/kong v1.16.1
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/modelcontextprotocol/go-sdk v1.7.0
+	golang.org/x/sync v0.22.0
 	modernc.org/sqlite v1.56.0
 )
 
@@ -21,7 +23,6 @@ require (
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	modernc.org/libc v1.74.4 // indirect
