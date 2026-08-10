@@ -13,6 +13,9 @@ type Instance struct {
 	CredentialKind  string
 	NeedsReauth     bool
 	Endpoint        string
+
+	// CredentialKinds are the kinds this instance's integration accepts.
+	CredentialKinds []string
 }
 
 // Integration is one entry in the catalogue.

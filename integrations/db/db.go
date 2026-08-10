@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/cainydev/tine/integrations"
+	"github.com/cainydev/tine/internal/credential"
 )
 
 const defaultBaseURL = "https://v6.db.transport.rest"
@@ -55,6 +56,11 @@ type client struct {
 	baseURL  string
 	language string
 	http     *http.Client
+}
+
+// Credentials reports that this integration reaches a public API.
+func (*Integration) Credentials() []credential.Kind {
+	return []credential.Kind{credential.KindNone}
 }
 
 // Bind produces the tool set for one configured instance.

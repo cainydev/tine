@@ -171,6 +171,36 @@ templ credentialSection(nav Nav, in Instance) {
 	</section>
 }
 
+// credentialLabel names a credential kind for the interface.
+func credentialLabel(kind string) string {
+	switch kind {
+	case "none":
+		return "this integration reaches a public api and needs no credential"
+	case "bearer":
+		return "bearer token"
+	case "header":
+		return "header value"
+	case "basic":
+		return "username and password"
+	case "oauth2":
+		return "oauth2 client credentials"
+	default:
+		return kind
+	}
+}
+
+// selectedKind is the kind whose fields should be shown: the configured one, or
+// the integration's preferred kind when nothing is configured yet.
+func selectedKind(in Instance) string {
+	if in.CredentialKind != "" {
+		return in.CredentialKind
+	}
+	if len(in.CredentialKinds) > 0 {
+		return in.CredentialKinds[0]
+	}
+	return "none"
+}
+
 templ kindOption(value, label, selected string) {
 	if value == selected {
 		<option value={ value } selected>{ label }</option>

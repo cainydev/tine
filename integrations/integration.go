@@ -43,6 +43,11 @@ type Integration interface {
 	// before an instance is created.
 	Params() []ParamSpec
 
+	// Credentials lists the credential kinds this integration can use, most
+	// preferred first. An interface offering a kind an integration cannot use
+	// would only produce a failure at request time.
+	Credentials() []credential.Kind
+
 	// Bind produces the tool set for one configured instance. It runs on every
 	// request in stateless mode, so it must be cheap: build tool definitions,
 	// do not dial upstream.
@@ -139,6 +144,11 @@ func (r *Registry) All() []Integration {
 	out := slices.Collect(maps.Values(r.items))
 	sort.Slice(out, func(i, j int) bool { return out[i].Slug() < out[j].Slug() })
 	return out
+}
+
+// AcceptsCredential reports whether an integration can use a credential kind.
+func AcceptsCredential(in Integration, kind credential.Kind) bool {
+	return slices.Contains(in.Credentials(), kind)
 }
 
 // ValidateParams checks an instance's settings against an integration's specs

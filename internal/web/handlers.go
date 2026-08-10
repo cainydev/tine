@@ -9,6 +9,7 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/cainydev/tine/integrations"
+	"github.com/cainydev/tine/internal/credential"
 	"github.com/cainydev/tine/internal/slug"
 	"github.com/cainydev/tine/internal/web/views"
 )
@@ -238,6 +239,16 @@ func (s *Server) saveCredential(w http.ResponseWriter, r *http.Request, u *User)
 		BaseURL:      instance.Params["base_url"],
 	}
 
+	// The form only offers accepted kinds, but a submitted value must be checked
+	// too: hiding an option is presentation, not enforcement.
+	if !integrations.AcceptsCredential(integration, credential.Kind(input.Kind)) {
+		s.render(w, r, views.InstanceDetail(s.nav(u),
+			s.viewInstance(u, *instance),
+			viewParams(integration, instance.Params),
+			fmt.Sprintf("%s does not accept %q credentials", integration.Name(), input.Kind)))
+		return nil
+	}
+
 	if err := s.store.SetCredential(r.Context(), u.Subject, instance.ID, input); err != nil {
 		s.render(w, r, views.InstanceDetail(s.nav(u),
 			s.viewInstance(u, *instance),
@@ -293,7 +304,16 @@ func (s *Server) instancePath(u *User, in Instance) string {
 }
 
 func (s *Server) viewInstance(u *User, in Instance) views.Instance {
+	// The interface offers only the credential kinds the integration can use.
+	var kinds []string
+	if integration, ok := s.registry.Get(in.IntegrationSlug); ok {
+		for _, k := range integration.Credentials() {
+			kinds = append(kinds, string(k))
+		}
+	}
+
 	return views.Instance{
+		CredentialKinds: kinds,
 		ID:              in.ID,
 		DisplayName:     in.DisplayName,
 		IntegrationSlug: in.IntegrationSlug,

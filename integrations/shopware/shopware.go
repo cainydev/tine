@@ -66,6 +66,12 @@ type client struct {
 	http     *http.Client
 }
 
+// Credentials reports that the Admin API accepts only an OAuth2 client
+// credentials grant, using an integration's access key id and secret.
+func (*Integration) Credentials() []credential.Kind {
+	return []credential.Kind{credential.KindOAuth2}
+}
+
 // Bind produces the tool set for one configured instance.
 func (*Integration) Bind(_ context.Context, b *integrations.Binding) ([]integrations.Tool, error) {
 	base := strings.TrimRight(b.Params["base_url"], "/")
