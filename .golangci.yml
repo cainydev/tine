@@ -1,0 +1,55 @@
+version: "2"
+
+run:
+  timeout: 2m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - bodyclose      # unclosed HTTP response bodies, we make a lot of upstream calls
+    - contextcheck   # context is passed through, not dropped
+    - copyloopvar
+    - errorlint      # %w wrapping and errors.Is/As correctness
+    - gocritic
+    - misspell
+    - noctx          # no HTTP requests without a context
+    - nilerr
+    - perfsprint
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+    - usestdlibvars
+    - wastedassign
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true          # CLAUDE.md: `_ =` needs a reason
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment         # noisy; readability wins over struct packing
+    revive:
+      rules:
+        - name: exported
+        - name: error-strings
+        - name: context-as-argument
+        - name: indent-error-flow
+
+  exclusions:
+    rules:
+      # Test files may skip error checks on cleanup and use dot-imports.
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/cainydev/tine

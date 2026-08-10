@@ -1,0 +1,11 @@
+# Build output
+/bin/
+
+# Local databases
+*.db
+*.db-shm
+*.db-wal
+
+# Local environment — may contain the master key and issuer settings
+.env
+.env.*
