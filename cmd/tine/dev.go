@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cainydev/tine/integrations"
+	"github.com/cainydev/tine/internal/credential"
 	"github.com/cainydev/tine/internal/gateway"
 	"github.com/cainydev/tine/internal/store"
 )
@@ -34,7 +35,9 @@ type devCmd struct {
 	Param       map[string]string `short:"p" placeholder:"KEY=VALUE" help:"Instance parameter. Repeatable."`
 	Addr        string            `short:"a" default:":8377" help:"Listen address."`
 	Verbose     bool              `short:"v" help:"Log at debug level."`
-	Launch      string            `short:"l" enum:"none,claude" default:"none" help:"Launch an agent connected to this endpoint and nothing else. One of: none, claude."`
+	Launch      string            `short:"l" enum:"none,claude" default:"none" help:"Agent to launch against this endpoint. With none, tine serves and logs to this terminal."`
+	NoSplit     bool              `help:"Give the agent the whole terminal instead of splitting it with the request log."`
+	LogPercent  int               `default:"20" help:"Percentage of the terminal given to the log pane."`
 	PrintConfig bool              `help:"Print the MCP client configuration and exit."`
 }
 
@@ -55,10 +58,25 @@ func (c *devCmd) Run() error {
 	if c.Verbose {
 		level = slog.LevelDebug
 	}
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 	ctx, stop := signalContext()
 	defer stop()
+
+	// A split launch sends the log to a fifo the second pane reads; otherwise it
+	// goes to stderr, where the terminal is free to show it.
+	var split *splitSession
+	if c.splitting() {
+		split, err = newSplitSession(strings.TrimPrefix(portOf(c.Addr), ":"))
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if closeErr := split.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "tine: %v\n", closeErr)
+			}
+		}()
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 	// In-memory: dev state should not outlive the process.
 	db, err := store.Open(ctx, ":memory:")
@@ -99,9 +117,11 @@ func (c *devCmd) Run() error {
 		return nil
 	}
 
+	upstream := &http.Client{Timeout: 30 * time.Second}
+
 	gw := gateway.New(
 		db,
-		gateway.NewIntegrationBuilder(reg, db, db, &http.Client{Timeout: 30 * time.Second}),
+		gateway.NewIntegrationBuilder(reg, db, db, upstream),
 		gateway.NewDevAuthenticator(devSubject, publicURL),
 		log,
 	)
@@ -112,8 +132,8 @@ func (c *devCmd) Run() error {
 	}
 	fmt.Println()
 
-	if c.Launch == "none" {
-		return serveHTTP(ctx, c.Addr, gw.Handler(), 5*time.Second)
+	if c.Launch == launchNone {
+		return serveHTTP(ctx, c.Addr, requestLog(gw.Handler(), log), 5*time.Second)
 	}
 
 	// Serve in the background and stop once the agent exits, so one command
@@ -121,8 +141,29 @@ func (c *devCmd) Run() error {
 	agentCtx, stopServing := context.WithCancel(ctx)
 	defer stopServing()
 
+	if c.splitting() {
+		names, err := toolNames(ctx, in, params, upstream)
+		if err != nil {
+			return err
+		}
+
+		return c.runSplit(ctx, splitArgs{
+			session:     split,
+			agent:       c.Launch,
+			name:        in.Slug(),
+			integration: in.Name(),
+			version:     in.Version(),
+			tools:       names,
+			url:         url,
+			publicURL:   publicURL,
+			handler:     gw.Handler(),
+			serveCtx:    agentCtx,
+			stopServing: stopServing,
+		})
+	}
+
 	served := make(chan error, 1)
-	go func() { served <- serveHTTP(agentCtx, c.Addr, gw.Handler(), 5*time.Second) }()
+	go func() { served <- serveHTTP(agentCtx, c.Addr, requestLog(gw.Handler(), log), 5*time.Second) }()
 
 	if err := waitForHealth(ctx, publicURL); err != nil {
 		return err
@@ -135,6 +176,159 @@ func (c *devCmd) Run() error {
 		return serveErr
 	}
 	return launchErr
+}
+
+// splitArgs carries what runSplit needs, so its signature stays readable.
+type splitArgs struct {
+	session     *splitSession
+	agent       string
+	name        string
+	integration string
+	version     string
+	tools       []string
+	url         string
+	publicURL   string
+	handler     http.Handler
+
+	// serveCtx is cancelled by stopServing once the tmux session ends.
+	serveCtx    context.Context
+	stopServing context.CancelFunc
+}
+
+// runSplit starts the tmux session, points the log at its second pane, and
+// serves until the session ends.
+func (c *devCmd) runSplit(ctx context.Context, a splitArgs) error {
+	agent, err := agentCommandFor(a.agent, a.name, a.url)
+	if err != nil {
+		return err
+	}
+
+	logFile, err := a.session.Start(ctx, agent, c.LogPercent)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := logFile.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "tine: close log: %v\n", closeErr)
+		}
+	}()
+	// context.WithoutCancel so teardown still runs once ctx is cancelled.
+	defer a.session.Kill(context.WithoutCancel(ctx))
+
+	// A signal to tine must take the tmux session with it, or the panes would
+	// outlive the server they are attached to.
+	go func() {
+		<-ctx.Done()
+		a.session.Kill(context.WithoutCancel(ctx))
+	}()
+
+	// Rebind the logger now that the log pane exists and is reading. The pane is
+	// narrow, so timestamps are dropped: they cost a third of the width and the
+	// interesting thing is the sequence, not the wall clock.
+	paneLog := slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+	}))
+
+	served := make(chan error, 1)
+	//nolint:contextcheck // serveCtx is cancelled by stopServing when tmux exits
+	go func() {
+		served <- serveHTTP(a.serveCtx, c.Addr, requestLog(a.handler, paneLog), 5*time.Second)
+	}()
+
+	if err := waitForHealth(ctx, a.publicURL); err != nil {
+		return err
+	}
+
+	// Open with what is being served, so the pane is informative before any
+	// request arrives rather than blank.
+	if _, err := fmt.Fprintf(logFile, "%s %s\n%s\ntools: %s\nauth disabled, waiting for requests\n\n",
+		a.integration, a.version, a.url, strings.Join(a.tools, ", ")); err != nil {
+		return fmt.Errorf("write to log pane: %w", err)
+	}
+
+	attachErr := a.session.Attach(ctx)
+	a.stopServing()
+
+	if serveErr := <-served; serveErr != nil {
+		return serveErr
+	}
+	return attachErr
+}
+
+// toolNames lists the tools an integration exposes, for the log pane header.
+func toolNames(
+	ctx context.Context,
+	in integrations.Integration,
+	params map[string]string,
+	client *http.Client,
+) ([]string, error) {
+	tools, err := in.Bind(ctx, &integrations.Binding{
+		InstanceID: devInstanceID,
+		Params:     params,
+		Credential: credential.None{},
+		HTTP:       client,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("bind integration: %w", err)
+	}
+
+	names := make([]string, 0, len(tools))
+	for _, t := range tools {
+		names = append(names, t.Name)
+	}
+	return names, nil
+}
+
+// launchNone is the --launch value meaning "serve, launch nothing".
+const launchNone = "none"
+
+// splitting reports whether the agent shares the terminal with the log pane.
+//
+// Splitting is the default because seeing requests as the agent makes them is
+// the point of a dev run; --no-split exists for when tmux is unavailable or the
+// agent should have the full terminal.
+func (c *devCmd) splitting() bool {
+	return c.Launch != launchNone && !c.NoSplit
+}
+
+// requestLog reports each request and its outcome, so the log pane shows the
+// traffic an agent generates.
+func requestLog(next http.Handler, log *slog.Logger) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+
+		next.ServeHTTP(rec, r)
+
+		log.Info(r.Method+" "+r.URL.Path,
+			slog.Int("status", rec.status),
+			slog.Duration("took", time.Since(start).Round(time.Millisecond)))
+	})
+}
+
+// statusRecorder captures the status code written by a handler.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
+}
+
+// Flush keeps streaming responses working: the MCP handler streams events, and
+// a wrapper that hides http.Flusher would buffer them until the response ends.
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // waitForHealth blocks until the server answers, so an agent never starts

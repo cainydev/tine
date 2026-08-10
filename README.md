@@ -40,6 +40,10 @@ and nothing else:
 ./bin/tine dev deutsche-bahn --launch claude
 ```
 
+the agent gets the top of the terminal and the request log the bottom, so you
+see each call as the agent makes it. `--no-split` gives the agent the whole
+terminal, `--log-percent` changes the division.
+
 `--print-config` writes the client configuration to stdout instead, for agents
 that are not launched directly.
 

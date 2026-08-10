@@ -33,29 +33,41 @@ func clientConfig(name, url string) ([]byte, error) {
 	return out, nil
 }
 
-// launchAgent starts an agent connected only to the given endpoint.
+// agentCommandFor resolves how to launch an agent against one endpoint.
 //
 // The configuration is passed on the command line rather than written to disk,
 // so a dev run leaves nothing behind.
-func launchAgent(ctx context.Context, agent, name, url string) error {
+func agentCommandFor(agent, name, url string) (agentCommand, error) {
 	config, err := clientConfig(name, url)
+	if err != nil {
+		return agentCommand{}, err
+	}
+
+	switch agent {
+	case "claude":
+		path, err := exec.LookPath("claude")
+		if err != nil {
+			return agentCommand{}, fmt.Errorf("claude is not on PATH: %w", err)
+		}
+		// --strict-mcp-config so the session sees this endpoint and nothing
+		// else, which is the point of testing one integration in isolation.
+		return agentCommand{
+			path: path,
+			args: []string{"--strict-mcp-config", "--mcp-config", string(config)},
+		}, nil
+	default:
+		return agentCommand{}, fmt.Errorf("unknown agent %q", agent)
+	}
+}
+
+// launchAgent runs an agent in the current terminal until it exits.
+func launchAgent(ctx context.Context, agent, name, url string) error {
+	resolved, err := agentCommandFor(agent, name, url)
 	if err != nil {
 		return err
 	}
 
-	var cmd *exec.Cmd
-	switch agent {
-	case "claude":
-		// --strict-mcp-config so the session sees this endpoint and nothing
-		// else, which is the point of testing one integration in isolation.
-		cmd = exec.CommandContext(ctx, "claude", //nolint:gosec // fixed program name, config is generated
-			"--strict-mcp-config",
-			"--mcp-config", string(config),
-		)
-	default:
-		return fmt.Errorf("unknown agent %q", agent)
-	}
-
+	cmd := exec.CommandContext(ctx, resolved.path, resolved.args...) //nolint:gosec // resolved from a fixed set
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
