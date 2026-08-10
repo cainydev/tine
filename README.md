@@ -33,7 +33,15 @@ just dev deutsche-bahn
 just dev deutsche-bahn --param language=en
 ```
 
-point an mcp client at the printed url.
+point an mcp client at the printed url, or launch one connected to that endpoint
+and nothing else:
+
+```sh
+./bin/tine dev deutsche-bahn --launch claude
+```
+
+`--print-config` writes the client configuration to stdout instead, for agents
+that are not launched directly.
 
 ## running
 

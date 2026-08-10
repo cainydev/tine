@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -32,6 +34,8 @@ type devCmd struct {
 	Param       map[string]string `short:"p" placeholder:"KEY=VALUE" help:"Instance parameter. Repeatable."`
 	Addr        string            `short:"a" default:":8377" help:"Listen address."`
 	Verbose     bool              `short:"v" help:"Log at debug level."`
+	Launch      string            `short:"l" enum:"none,claude" default:"none" help:"Launch an agent connected to this endpoint and nothing else. One of: none, claude."`
+	PrintConfig bool              `help:"Print the MCP client configuration and exit."`
 }
 
 func (c *devCmd) Run() error {
@@ -84,7 +88,16 @@ func (c *devCmd) Run() error {
 	}
 
 	publicURL := "http://localhost" + portOf(c.Addr)
-	endpoint := fmt.Sprintf("/%s/%s/%s", devUser, in.Slug(), devInstanceID)
+	url := publicURL + fmt.Sprintf("/%s/%s/%s", devUser, in.Slug(), devInstanceID)
+
+	if c.PrintConfig {
+		config, err := clientConfig(in.Slug(), url)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(config))
+		return nil
+	}
 
 	gw := gateway.New(
 		db,
@@ -93,13 +106,63 @@ func (c *devCmd) Run() error {
 		log,
 	)
 
-	fmt.Printf("\n  %s\n  %s%s\n\n  auth disabled\n\n", in.Name(), publicURL, endpoint)
+	fmt.Printf("\n  %s\n  %s\n\n  auth disabled\n\n", in.Name(), url)
 	for _, spec := range in.Params() {
 		fmt.Printf("  %-12s %s\n", spec.Key, params[spec.Key])
 	}
 	fmt.Println()
 
-	return serveHTTP(ctx, c.Addr, gw.Handler(), 5*time.Second)
+	if c.Launch == "none" {
+		return serveHTTP(ctx, c.Addr, gw.Handler(), 5*time.Second)
+	}
+
+	// Serve in the background and stop once the agent exits, so one command
+	// covers the whole test loop.
+	agentCtx, stopServing := context.WithCancel(ctx)
+	defer stopServing()
+
+	served := make(chan error, 1)
+	go func() { served <- serveHTTP(agentCtx, c.Addr, gw.Handler(), 5*time.Second) }()
+
+	if err := waitForHealth(ctx, publicURL); err != nil {
+		return err
+	}
+
+	launchErr := launchAgent(ctx, c.Launch, in.Slug(), url)
+	stopServing()
+
+	if serveErr := <-served; serveErr != nil {
+		return serveErr
+	}
+	return launchErr
+}
+
+// waitForHealth blocks until the server answers, so an agent never starts
+// against a socket that is not listening yet.
+func waitForHealth(ctx context.Context, baseURL string) error {
+	client := &http.Client{Timeout: time.Second}
+
+	for range 50 {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/healthz", nil)
+		if err != nil {
+			return fmt.Errorf("build health request: %w", err)
+		}
+
+		resp, err := client.Do(req)
+		if err == nil {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				return fmt.Errorf("close health response: %w", closeErr)
+			}
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	return errors.New("server did not become healthy")
 }
 
 // fixedIDs returns identifiers that are stable across runs. Dev state is
