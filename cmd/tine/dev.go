@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -133,7 +135,7 @@ func (c *devCmd) Run() error {
 	fmt.Println()
 
 	if c.Launch == launchNone {
-		return serveHTTP(ctx, c.Addr, requestLog(gw.Handler(), log), 5*time.Second)
+		return serveHTTP(ctx, c.Addr, requestLog(gw.Handler(), log, os.Stderr), 5*time.Second)
 	}
 
 	// Serve in the background and stop once the agent exits, so one command
@@ -163,7 +165,7 @@ func (c *devCmd) Run() error {
 	}
 
 	served := make(chan error, 1)
-	go func() { served <- serveHTTP(agentCtx, c.Addr, requestLog(gw.Handler(), log), 5*time.Second) }()
+	go func() { served <- serveHTTP(agentCtx, c.Addr, requestLog(gw.Handler(), log, os.Stderr), 5*time.Second) }()
 
 	if err := waitForHealth(ctx, publicURL); err != nil {
 		return err
@@ -235,21 +237,28 @@ func (c *devCmd) runSplit(ctx context.Context, a splitArgs) error {
 		},
 	}))
 
+	// The header is written before the server starts, so it always leads the
+	// pane rather than racing the first request.
+	var header strings.Builder
+	fmt.Fprintf(&header, "tine  %s %s\n%s\nauth disabled\n\n%d tools\n",
+		a.integration, a.version, a.url, len(a.tools))
+	for _, name := range a.tools {
+		header.WriteString("  " + name + "\n")
+	}
+	header.WriteString("\nwaiting for requests\n\n")
+
+	if _, err := io.WriteString(logFile, header.String()); err != nil {
+		return fmt.Errorf("write to log pane: %w", err)
+	}
+
 	served := make(chan error, 1)
 	//nolint:contextcheck // serveCtx is cancelled by stopServing when tmux exits
 	go func() {
-		served <- serveHTTP(a.serveCtx, c.Addr, requestLog(a.handler, paneLog), 5*time.Second)
+		served <- serveHTTP(a.serveCtx, c.Addr, requestLog(a.handler, paneLog, logFile), 5*time.Second)
 	}()
 
 	if err := waitForHealth(ctx, a.publicURL); err != nil {
 		return err
-	}
-
-	// Open with what is being served, so the pane is informative before any
-	// request arrives rather than blank.
-	if _, err := fmt.Fprintf(logFile, "%s %s\n%s\ntools: %s\nauth disabled, waiting for requests\n\n",
-		a.integration, a.version, a.url, strings.Join(a.tools, ", ")); err != nil {
-		return fmt.Errorf("write to log pane: %w", err)
 	}
 
 	attachErr := a.session.Attach(ctx)
@@ -297,35 +306,205 @@ func (c *devCmd) splitting() bool {
 	return c.Launch != launchNone && !c.NoSplit
 }
 
-// requestLog reports each request and its outcome, so the log pane shows the
-// traffic an agent generates.
-func requestLog(next http.Handler, log *slog.Logger) http.Handler {
+// requestLog reports each MCP call: the tool, its arguments, and a truncated
+// view of what came back.
+//
+// Every MCP request is a POST to the same path, so path and status say almost
+// nothing. What matters when developing an integration is what the agent asked
+// for and what it received.
+func requestLog(next http.Handler, log *slog.Logger, out io.Writer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		// tine's own readiness probe is not agent traffic.
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
 
+		start := time.Now()
+		call := describeCall(r)
+
+		rec := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
 
-		log.Info(r.Method+" "+r.URL.Path,
-			slog.Int("status", rec.status),
-			slog.Duration("took", time.Since(start).Round(time.Millisecond)))
+		took := time.Since(start).Round(time.Millisecond)
+
+		// Anything that is not a tool call is a one-line protocol event.
+		if call.tool == "" {
+			label := call.method
+			if label == "" {
+				label = r.Method + " " + r.URL.Path
+			}
+			log.Info(label, slog.Duration("took", took))
+			return
+		}
+
+		result, failed := decodeResult(rec.body.Bytes())
+		status := "ok"
+		if failed {
+			status = "error"
+		}
+
+		var entry strings.Builder
+		fmt.Fprintf(&entry, "\n%s  %s\n", call.tool, took)
+		if args := formatJSON(call.args, "  "); args != "" {
+			entry.WriteString(args + "\n")
+		}
+		fmt.Fprintf(&entry, "  -> %s %s\n", status, truncate(result, maxLoggedResult))
+
+		// A failed write to the log pane is not worth failing a request over,
+		// but it should not vanish either.
+		if _, err := io.WriteString(out, entry.String()); err != nil {
+			log.Warn("write to log pane", slog.Any("error", err))
+		}
 	})
 }
 
-// statusRecorder captures the status code written by a handler.
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
+const (
+	// maxLoggedBody bounds how much of a request body is buffered to identify a
+	// call. Tool arguments can be large and none of that is needed here.
+	maxLoggedBody = 64 << 10
+
+	// maxLoggedResult bounds how much of a result is shown. The log pane is a
+	// few lines tall, so a full response would push everything else out.
+	maxLoggedResult = 400
+)
+
+// mcpCall is what could be read from a request body.
+type mcpCall struct {
+	method string
+	tool   string
+	args   json.RawMessage
 }
 
-func (r *statusRecorder) WriteHeader(status int) {
+// describeCall reads the JSON-RPC method, tool name and arguments from a
+// request, leaving the body readable by the handler.
+func describeCall(r *http.Request) mcpCall {
+	if r.Body == nil || r.Method != http.MethodPost {
+		return mcpCall{}
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxLoggedBody))
+	if err != nil {
+		return mcpCall{}
+	}
+	// The handler still needs the body, so hand back what was consumed.
+	r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), r.Body))
+
+	var parsed struct {
+		Method string `json:"method"`
+		Params struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return mcpCall{}
+	}
+	return mcpCall{
+		method: parsed.Method,
+		tool:   parsed.Params.Name,
+		args:   parsed.Params.Arguments,
+	}
+}
+
+// decodeResult extracts a tool result from a response and reports whether the
+// tool failed.
+//
+// A failing tool still returns HTTP 200 with isError set, because the JSON-RPC
+// call itself succeeded. Reading the status alone would report every failure as
+// a success.
+func decodeResult(body []byte) (string, bool) {
+	payload := body
+	// Streamable HTTP wraps the payload in an SSE frame.
+	if line, ok := sseData(body); ok {
+		payload = line
+	}
+
+	var envelope struct {
+		Result struct {
+			IsError           bool            `json:"isError"`
+			StructuredContent json.RawMessage `json:"structuredContent"`
+			Content           []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return strings.TrimSpace(string(payload)), false
+	}
+
+	if envelope.Error != nil {
+		return envelope.Error.Message, true
+	}
+
+	if len(envelope.Result.StructuredContent) > 0 {
+		return formatJSON(envelope.Result.StructuredContent, ""), envelope.Result.IsError
+	}
+	if len(envelope.Result.Content) > 0 {
+		return envelope.Result.Content[0].Text, envelope.Result.IsError
+	}
+	return strings.TrimSpace(string(payload)), envelope.Result.IsError
+}
+
+// sseData returns the payload of the first data: line in an SSE response.
+func sseData(body []byte) ([]byte, bool) {
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			return []byte(after), true
+		}
+	}
+	return nil, false
+}
+
+// formatJSON indents JSON for reading, returning the original on failure.
+func formatJSON(raw []byte, indent string) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, raw, indent, "  "); err != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	return indent + buf.String()
+}
+
+// truncate shortens text to n characters, noting how much was dropped.
+func truncate(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + fmt.Sprintf("... (%d more)", len(s)-n)
+}
+
+// responseRecorder captures a handler's status and body so a tool result can be
+// reported.
+type responseRecorder struct {
+	http.ResponseWriter
+	status int
+	body   bytes.Buffer
+}
+
+func (r *responseRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
 }
 
+func (r *responseRecorder) Write(b []byte) (int, error) {
+	// Bounded: a large result must not be held in memory in full.
+	if r.body.Len() < maxLoggedBody {
+		r.body.Write(b)
+	}
+	return r.ResponseWriter.Write(b) //nolint:wrapcheck // passing through the underlying writer
+}
+
 // Flush keeps streaming responses working: the MCP handler streams events, and
-// a wrapper that hides http.Flusher would buffer them until the response ends.
-func (r *statusRecorder) Flush() {
+// a wrapper hiding http.Flusher would buffer them until the response ended.
+func (r *responseRecorder) Flush() {
 	if f, ok := r.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}

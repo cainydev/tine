@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -25,7 +24,7 @@ type splitSession struct {
 	dir        string
 }
 
-// newSplitSession creates the fifo the log pane reads and the tmux
+// newSplitSession creates the file the log pane follows and the tmux
 // configuration the session starts from.
 func newSplitSession(port string) (*splitSession, error) {
 	dir, err := os.MkdirTemp("", "tine-dev-")
@@ -33,9 +32,13 @@ func newSplitSession(port string) (*splitSession, error) {
 		return nil, fmt.Errorf("create session directory: %w", err)
 	}
 
+	// A regular file rather than a fifo. Writing to a fifo blocks until a reader
+	// attaches and fails with EPIPE if the reader goes away, so a log line could
+	// hang startup or kill the server. `tail -f` follows a file just as well and
+	// neither hazard applies.
 	logPath := filepath.Join(dir, "log")
-	if err := syscall.Mkfifo(logPath, 0o600); err != nil {
-		return nil, fmt.Errorf("create log fifo: %w", err)
+	if err := os.WriteFile(logPath, nil, 0o600); err != nil {
+		return nil, fmt.Errorf("create log file: %w", err)
 	}
 
 	s := &splitSession{
@@ -108,9 +111,6 @@ func (s *splitSession) Close() error {
 
 // Start creates a detached tmux session with the agent on top and the log
 // below, then returns a writer for the log pane.
-//
-// Opening a fifo for writing blocks until a reader attaches, so the log pane
-// must exist first. Start handles that ordering.
 func (s *splitSession) Start(ctx context.Context, agent agentCommand, logPercent int) (*os.File, error) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		return nil, fmt.Errorf("tmux is required for a split launch: %w", err)
@@ -154,16 +154,15 @@ func (s *splitSession) Start(ctx context.Context, agent agentCommand, logPercent
 		"split-window", "-v", "-d",
 		"-p", strconv.Itoa(logPercent),
 		"-t", s.name+":tine",
-		"--", "sh", "-c", "tail -f "+shellQuote(s.logPath),
+		"--", "sh", "-c", "tail -n +1 -f "+shellQuote(s.logPath),
 	)
 	if out, err := logPane.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("split tmux window: %w: %s", err, out)
 	}
 
-	// The reader now exists, so this open will not block.
-	w, err := os.OpenFile(s.logPath, os.O_WRONLY, 0)
+	w, err := os.OpenFile(s.logPath, os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("open log fifo: %w", err)
+		return nil, fmt.Errorf("open log file: %w", err)
 	}
 	return w, nil
 }
