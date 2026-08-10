@@ -86,6 +86,15 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const deleteCredential = `-- name: DeleteCredential :exec
+DELETE FROM credentials WHERE instance_id = ?
+`
+
+func (q *Queries) DeleteCredential(ctx context.Context, instanceID string) error {
+	_, err := q.db.ExecContext(ctx, deleteCredential, instanceID)
+	return err
+}
+
 const deleteInstance = `-- name: DeleteInstance :exec
 DELETE FROM instances WHERE id = ?
 `
@@ -93,6 +102,81 @@ DELETE FROM instances WHERE id = ?
 func (q *Queries) DeleteInstance(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, deleteInstance, id)
 	return err
+}
+
+const deleteInstanceForUser = `-- name: DeleteInstanceForUser :execrows
+DELETE FROM instances
+WHERE instances.id = ?
+  AND instances.user_id = (SELECT u.id FROM users u WHERE u.subject = ?)
+`
+
+type DeleteInstanceForUserParams struct {
+	ID      string
+	Subject string
+}
+
+func (q *Queries) DeleteInstanceForUser(ctx context.Context, arg DeleteInstanceForUserParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteInstanceForUser, arg.ID, arg.Subject)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getInstanceForUser = `-- name: GetInstanceForUser :one
+SELECT
+    i.id,
+    i.user_id,
+    i.display_name,
+    i.params,
+    i.enabled,
+    g.slug    AS integration_slug,
+    g.name    AS integration_name,
+    g.version AS integration_version,
+    c.kind         AS credential_kind,
+    c.needs_reauth AS credential_needs_reauth
+FROM instances i
+JOIN users u        ON u.id = i.user_id
+JOIN integrations g ON g.id = i.integration_id
+LEFT JOIN credentials c ON c.instance_id = i.id
+WHERE u.subject = ? AND i.id = ?
+`
+
+type GetInstanceForUserParams struct {
+	Subject string
+	ID      string
+}
+
+type GetInstanceForUserRow struct {
+	ID                    string
+	UserID                string
+	DisplayName           string
+	Params                string
+	Enabled               int64
+	IntegrationSlug       string
+	IntegrationName       string
+	IntegrationVersion    string
+	CredentialKind        *string
+	CredentialNeedsReauth *int64
+}
+
+// Ownership is part of the lookup, so a handler cannot forget to check it.
+func (q *Queries) GetInstanceForUser(ctx context.Context, arg GetInstanceForUserParams) (GetInstanceForUserRow, error) {
+	row := q.db.QueryRowContext(ctx, getInstanceForUser, arg.Subject, arg.ID)
+	var i GetInstanceForUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.DisplayName,
+		&i.Params,
+		&i.Enabled,
+		&i.IntegrationSlug,
+		&i.IntegrationName,
+		&i.IntegrationVersion,
+		&i.CredentialKind,
+		&i.CredentialNeedsReauth,
+	)
+	return i, err
 }
 
 const getInstanceParams = `-- name: GetInstanceParams :one
@@ -178,6 +262,137 @@ func (q *Queries) ListInstancesBySubject(ctx context.Context, subject string) ([
 			&i.Params,
 			&i.Enabled,
 			&i.IntegrationSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInstancesForUser = `-- name: ListInstancesForUser :many
+SELECT
+    i.id,
+    i.display_name,
+    i.params,
+    i.enabled,
+    i.created_at,
+    g.slug    AS integration_slug,
+    g.name    AS integration_name,
+    g.version AS integration_version,
+    c.kind         AS credential_kind,
+    c.needs_reauth AS credential_needs_reauth
+FROM instances i
+JOIN users u        ON u.id = i.user_id
+JOIN integrations g ON g.id = i.integration_id
+LEFT JOIN credentials c ON c.instance_id = i.id
+WHERE u.subject = ?
+ORDER BY g.slug, i.created_at
+`
+
+type ListInstancesForUserRow struct {
+	ID                    string
+	DisplayName           string
+	Params                string
+	Enabled               int64
+	CreatedAt             int64
+	IntegrationSlug       string
+	IntegrationName       string
+	IntegrationVersion    string
+	CredentialKind        *string
+	CredentialNeedsReauth *int64
+}
+
+// Every instance a user owns, with the integration it was created against.
+func (q *Queries) ListInstancesForUser(ctx context.Context, subject string) ([]ListInstancesForUserRow, error) {
+	rows, err := q.db.QueryContext(ctx, listInstancesForUser, subject)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListInstancesForUserRow{}
+	for rows.Next() {
+		var i ListInstancesForUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DisplayName,
+			&i.Params,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.IntegrationSlug,
+			&i.IntegrationName,
+			&i.IntegrationVersion,
+			&i.CredentialKind,
+			&i.CredentialNeedsReauth,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInstancesForUserIntegration = `-- name: ListInstancesForUserIntegration :many
+SELECT
+    i.id,
+    i.display_name,
+    i.params,
+    i.enabled,
+    i.created_at,
+    c.kind         AS credential_kind,
+    c.needs_reauth AS credential_needs_reauth
+FROM instances i
+JOIN users u        ON u.id = i.user_id
+JOIN integrations g ON g.id = i.integration_id
+LEFT JOIN credentials c ON c.instance_id = i.id
+WHERE u.subject = ? AND g.slug = ?
+ORDER BY i.created_at
+`
+
+type ListInstancesForUserIntegrationParams struct {
+	Subject string
+	Slug    string
+}
+
+type ListInstancesForUserIntegrationRow struct {
+	ID                    string
+	DisplayName           string
+	Params                string
+	Enabled               int64
+	CreatedAt             int64
+	CredentialKind        *string
+	CredentialNeedsReauth *int64
+}
+
+func (q *Queries) ListInstancesForUserIntegration(ctx context.Context, arg ListInstancesForUserIntegrationParams) ([]ListInstancesForUserIntegrationRow, error) {
+	rows, err := q.db.QueryContext(ctx, listInstancesForUserIntegration, arg.Subject, arg.Slug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListInstancesForUserIntegrationRow{}
+	for rows.Next() {
+		var i ListInstancesForUserIntegrationRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DisplayName,
+			&i.Params,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.CredentialKind,
+			&i.CredentialNeedsReauth,
 		); err != nil {
 			return nil, err
 		}
@@ -306,6 +521,45 @@ func (q *Queries) UpsertIntegration(ctx context.Context, arg UpsertIntegrationPa
 		&i.Name,
 		&i.Version,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const upsertUser = `-- name: UpsertUser :one
+INSERT INTO users (id, subject, slug, email, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (subject) DO UPDATE SET
+    email      = excluded.email,
+    updated_at = excluded.updated_at
+RETURNING id, subject, slug, email, created_at, updated_at
+`
+
+type UpsertUserParams struct {
+	ID        string
+	Subject   string
+	Slug      string
+	Email     string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
+func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error) {
+	row := q.db.QueryRowContext(ctx, upsertUser,
+		arg.ID,
+		arg.Subject,
+		arg.Slug,
+		arg.Email,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Subject,
+		&i.Slug,
+		&i.Email,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

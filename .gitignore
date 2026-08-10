@@ -9,3 +9,6 @@
 # Local environment — may contain the master key and issuer settings
 .env
 .env.*
+
+# Downloaded build tools
+/.tools/

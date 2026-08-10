@@ -16,6 +16,7 @@ import (
 	"github.com/cainydev/tine/internal/credential"
 	"github.com/cainydev/tine/internal/gateway"
 	"github.com/cainydev/tine/internal/store"
+	"github.com/cainydev/tine/internal/web"
 )
 
 // serveCmd runs the server as it runs in production, configured entirely from
@@ -72,12 +73,39 @@ func (*serveCmd) Run() error {
 
 	gw := gateway.New(db, gateway.NewIntegrationBuilder(reg, db, db, upstream), auth, log)
 
+	// The gateway owns /{user}/{integration}/{id}; the interface owns
+	// everything else, including the more specific /new and action routes.
+	mux := http.NewServeMux()
+	mux.Handle("/", gw.Handler())
+
+	if cfg.WebEnabled() {
+		secret, secretErr := web.ParseSecret(cfg.SessionSecret)
+		if secretErr != nil {
+			return fmt.Errorf("session secret: %w", secretErr)
+		}
+
+		webAuth, webErr := web.NewAuthenticator(ctx, web.AuthConfig{
+			Issuer:        cfg.OIDCIssuer,
+			ClientID:      cfg.OIDCClientID,
+			ClientSecret:  cfg.OIDCClientSecret,
+			RedirectURL:   cfg.RedirectURL(),
+			Secret:        secret,
+			SecureCookies: cfg.SecureCookies(),
+		})
+		if webErr != nil {
+			return fmt.Errorf("web auth: %w", webErr)
+		}
+
+		web.NewServer(db, reg, webAuth, cfg.PublicURL, log).Routes(mux)
+		log.Info("management interface enabled", slog.String("url", cfg.PublicURL))
+	}
+
 	log.Info("listening",
 		slog.String("addr", cfg.Addr),
 		slog.String("public_url", cfg.PublicURL),
 		slog.String("issuer", cfg.OIDCIssuer))
 
-	return serveHTTP(ctx, cfg.Addr, gw.Handler(), cfg.ShutdownTimeout)
+	return serveHTTP(ctx, cfg.Addr, mux, cfg.ShutdownTimeout)
 }
 
 // genkeyCmd prints a new master key.

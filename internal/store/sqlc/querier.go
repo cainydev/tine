@@ -11,8 +11,12 @@ import (
 type Querier interface {
 	CreateInstance(ctx context.Context, arg CreateInstanceParams) (Instance, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteCredential(ctx context.Context, instanceID string) error
 	DeleteInstance(ctx context.Context, id string) error
+	DeleteInstanceForUser(ctx context.Context, arg DeleteInstanceForUserParams) (int64, error)
 	GetCredentialByInstance(ctx context.Context, instanceID string) (Credential, error)
+	// Ownership is part of the lookup, so a handler cannot forget to check it.
+	GetInstanceForUser(ctx context.Context, arg GetInstanceForUserParams) (GetInstanceForUserRow, error)
 	GetInstanceParams(ctx context.Context, id string) (string, error)
 	GetIntegrationBySlug(ctx context.Context, slug string) (Integration, error)
 	GetUserBySubject(ctx context.Context, subject string) (User, error)
@@ -21,6 +25,9 @@ type Querier interface {
 	// Proactive refresh, so a request does not pay for a token exchange.
 	ListExpiringCredentials(ctx context.Context, arg ListExpiringCredentialsParams) ([]Credential, error)
 	ListInstancesBySubject(ctx context.Context, subject string) ([]ListInstancesBySubjectRow, error)
+	// Every instance a user owns, with the integration it was created against.
+	ListInstancesForUser(ctx context.Context, subject string) ([]ListInstancesForUserRow, error)
+	ListInstancesForUserIntegration(ctx context.Context, arg ListInstancesForUserIntegrationParams) ([]ListInstancesForUserIntegrationRow, error)
 	MarkCredentialNeedsReauth(ctx context.Context, arg MarkCredentialNeedsReauthParams) error
 	// The routing hot path. The id is the primary key, but the user and
 	// integration slugs must also match: a correct id under the wrong path does not
@@ -30,6 +37,7 @@ type Querier interface {
 	UpdateInstanceParams(ctx context.Context, arg UpdateInstanceParamsParams) error
 	UpsertCredential(ctx context.Context, arg UpsertCredentialParams) (Credential, error)
 	UpsertIntegration(ctx context.Context, arg UpsertIntegrationParams) (Integration, error)
+	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)
 }
 
 var _ Querier = (*Queries)(nil)

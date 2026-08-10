@@ -47,6 +47,18 @@ ci: fmt lint tidy
     go test -race -shuffle=on -count=1 ./...
     go build ./...
 
+# Print a new master key for TINE_MASTER_KEY.
+genkey: build
+    @./bin/tine genkey
+
+# Print a new session secret for TINE_SESSION_SECRET.
+secret: build
+    @./bin/tine secret
+
+# Print a .env template with fresh secrets, ready to fill in.
+env: build
+    @./bin/tine env
+
 # Serve one integration locally with auth disabled.
 #
 #   just dev deutsche-bahn

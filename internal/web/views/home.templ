@@ -1,0 +1,89 @@
+package views
+
+// Landing is shown to a visitor who is not signed in.
+templ Landing(nav Nav) {
+	@Layout("tine", nav) {
+		<div class="py-16">
+			<h1 class="text-3xl font-medium tracking-tight text-neutral-100">
+				api to mcp proxy
+			</h1>
+			<p class="mt-4 max-w-xl text-neutral-400">
+				each configured integration is served at its own endpoint, with its own
+				credential. no aggregated tool list, no indirection.
+			</p>
+			<a
+				href="/login"
+				class="mt-8 inline-flex rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white"
+			>
+				sign in
+			</a>
+		</div>
+	}
+}
+
+// ChooseUsername is shown after a first sign in, before anything is created.
+templ ChooseUsername(nav Nav, suggested, errMsg string) {
+	@Layout("choose a username", nav) {
+		@Page("choose a username", "it becomes the first segment of every endpoint you create") {
+			@Alert(errMsg)
+			<form method="post" action="/settings/username" class="max-w-sm space-y-5">
+				@field("username", "lowercase letters, digits and hyphens") {
+					<div class="flex items-center gap-2">
+						<span class="font-mono text-sm text-neutral-600">/</span>
+						<input
+							type="text"
+							name="username"
+							value={ suggested }
+							required
+							autofocus
+							pattern="[a-z0-9]+(-[a-z0-9]+)*"
+							class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+						/>
+					</div>
+				}
+				<button
+					type="submit"
+					class="rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white"
+				>
+					continue
+				</button>
+			</form>
+		}
+	}
+}
+
+// Settings is the account page.
+templ Settings(nav Nav, endpointBase string) {
+	@Layout("settings", nav) {
+		@Page("settings", "") {
+			<dl class="space-y-6">
+				<div>
+					<dt class="text-sm font-medium text-neutral-300">username</dt>
+					<dd class="mt-1 font-mono text-sm text-neutral-500">{ nav.UserSlug }</dd>
+				</div>
+				<div>
+					<dt class="text-sm font-medium text-neutral-300">email</dt>
+					<dd class="mt-1 text-sm text-neutral-500">{ nav.Email }</dd>
+				</div>
+				<div>
+					<dt class="text-sm font-medium text-neutral-300">endpoints</dt>
+					<dd class="mt-1 font-mono text-sm text-neutral-500">
+						{ endpointBase }/{ nav.UserSlug }/&lt;integration&gt;/&lt;id&gt;
+					</dd>
+				</div>
+			</dl>
+		}
+	}
+}
+
+// LoginFailed explains why a sign in did not complete.
+templ LoginFailed(reason string) {
+	@Layout("sign in failed", Nav{}) {
+		@Page("sign in failed", "") {
+			<p class="mb-6 rounded border border-red-900/60 bg-red-950/40 px-4 py-3 font-mono text-sm text-red-300">
+				{ reason }
+			</p>
+			<a href="/login" class="text-sm text-neutral-400 transition hover:text-neutral-100">try again</a>
+		}
+	}
+}

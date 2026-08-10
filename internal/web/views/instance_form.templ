@@ -1,0 +1,241 @@
+package views
+
+import "fmt"
+
+// NewInstance is the form for creating an instance of one integration.
+templ NewInstance(nav Nav, integration Integration, errMsg string) {
+	@Layout("new "+integration.Slug, nav) {
+		@Page("new "+integration.Name, "") {
+			@Alert(errMsg)
+			<form
+				method="post"
+				action={ templ.SafeURL(fmt.Sprintf("/%s/%s/new", nav.UserSlug, integration.Slug)) }
+				class="space-y-6"
+			>
+				@field("name", "how this instance is labelled in the interface") {
+					<input
+						type="text"
+						name="display_name"
+						value={ integration.Name }
+						required
+						class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+					/>
+				}
+				for _, p := range integration.Params {
+					@paramField(p)
+				}
+				<div class="flex items-center gap-3 pt-2">
+					<button
+						type="submit"
+						class="rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white"
+					>
+						create
+					</button>
+					<a
+						href={ templ.SafeURL(fmt.Sprintf("/%s/%s", nav.UserSlug, integration.Slug)) }
+						class="text-sm text-neutral-500 transition hover:text-neutral-300"
+					>
+						cancel
+					</a>
+				</div>
+			</form>
+		}
+	}
+}
+
+templ paramField(p Param) {
+	@field(p.Key, p.Description) {
+		if len(p.Enum) > 0 {
+			<select
+				name={ "param_" + p.Key }
+				class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+			>
+				for _, option := range p.Enum {
+					if option == p.Value || (p.Value == "" && option == p.Default) {
+						<option value={ option } selected>{ option }</option>
+					} else {
+						<option value={ option }>{ option }</option>
+					}
+				}
+			</select>
+		} else {
+			<input
+				type="text"
+				name={ "param_" + p.Key }
+				value={ paramValue(p) }
+				placeholder={ p.Default }
+				required?={ p.Required }
+				class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+			/>
+		}
+	}
+}
+
+func paramValue(p Param) string {
+	if p.Value != "" {
+		return p.Value
+	}
+	return p.Default
+}
+
+templ field(label, description string) {
+	<div>
+		<label class="block text-sm font-medium text-neutral-300">{ label }</label>
+		if description != "" {
+			<p class="mb-2 mt-1 text-xs text-neutral-500">{ description }</p>
+		} else {
+			<div class="mb-2"></div>
+		}
+		{ children... }
+	</div>
+}
+
+// InstanceDetail is one instance: its endpoint, parameters and credential.
+templ InstanceDetail(nav Nav, in Instance, params []Param, errMsg string) {
+	@Layout(in.DisplayName, nav) {
+		@Page(in.DisplayName, fmt.Sprintf("%s · %s", in.IntegrationName, in.Version)) {
+			@Alert(errMsg)
+			<section class="mb-8">
+				<h2 class="mb-2 text-sm font-medium text-neutral-300">endpoint</h2>
+				<div class="rounded border border-neutral-800 bg-neutral-900/40 p-3">
+					<code class="break-all font-mono text-xs text-neutral-400">{ in.Endpoint }</code>
+				</div>
+			</section>
+			@credentialSection(nav, in)
+			if len(params) > 0 {
+				<section class="mb-8">
+					<h2 class="mb-3 text-sm font-medium text-neutral-300">parameters</h2>
+					<form
+						method="post"
+						action={ templ.SafeURL(fmt.Sprintf("/%s/%s/%s/params", nav.UserSlug, in.IntegrationSlug, in.ID)) }
+						class="space-y-5"
+					>
+						for _, p := range params {
+							@paramField(p)
+						}
+						<button
+							type="submit"
+							class="rounded border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 transition hover:border-neutral-500 hover:text-neutral-100"
+						>
+							save parameters
+						</button>
+					</form>
+				</section>
+			}
+			@dangerZone(nav, in)
+		}
+	}
+}
+
+templ credentialSection(nav Nav, in Instance) {
+	<section class="mb-8">
+		<h2 class="mb-3 text-sm font-medium text-neutral-300">credential</h2>
+		if in.NeedsReauth {
+			<p class="mb-3 rounded border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-300">
+				the stored credential was rejected upstream and could not be refreshed. replace it below.
+			</p>
+		}
+		<form
+			method="post"
+			action={ templ.SafeURL(fmt.Sprintf("/%s/%s/%s/credential", nav.UserSlug, in.IntegrationSlug, in.ID)) }
+			class="space-y-5 rounded border border-neutral-800 bg-neutral-900/40 p-4"
+		>
+			<p class="text-xs text-neutral-500">
+				stored encrypted. the value is never shown again once saved.
+			</p>
+			@field("type", "") {
+				<select
+					name="kind"
+					class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+					hx-get={ fmt.Sprintf("/%s/%s/%s/credential/fields", nav.UserSlug, in.IntegrationSlug, in.ID) }
+					hx-target="#credential-fields"
+					hx-trigger="change"
+				>
+					@kindOption("none", "no authentication", in.CredentialKind)
+					@kindOption("bearer", "bearer token", in.CredentialKind)
+					@kindOption("header", "header value", in.CredentialKind)
+					@kindOption("basic", "username and password", in.CredentialKind)
+				</select>
+			}
+			<div id="credential-fields">
+				@CredentialFields(in.CredentialKind)
+			</div>
+			<button
+				type="submit"
+				class="rounded border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 transition hover:border-neutral-500 hover:text-neutral-100"
+			>
+				save credential
+			</button>
+		</form>
+	</section>
+}
+
+templ kindOption(value, label, selected string) {
+	if value == selected {
+		<option value={ value } selected>{ label }</option>
+	} else {
+		<option value={ value }>{ label }</option>
+	}
+}
+
+// CredentialFields renders the inputs one credential kind needs. It is served
+// on its own so htmx can swap it when the kind changes.
+templ CredentialFields(kind string) {
+	switch kind {
+		case "bearer":
+			@field("token", "sent as: Authorization: Bearer <token>") {
+				@secretInput("token")
+			}
+		case "header":
+			@field("header name", "for example X-Api-Key") {
+				<input
+					type="text"
+					name="header_name"
+					required
+					class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+				/>
+			}
+			@field("header value", "") {
+				@secretInput("header_value")
+			}
+		case "basic":
+			@field("username", "") {
+				<input
+					type="text"
+					name="username"
+					required
+					class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+				/>
+			}
+			@field("password", "") {
+				@secretInput("password")
+			}
+		default:
+			<p class="text-xs text-neutral-500">this integration reaches a public api and needs no credential.</p>
+	}
+}
+
+templ secretInput(name string) {
+	<input
+		type="password"
+		name={ name }
+		required
+		autocomplete="off"
+		spellcheck="false"
+		class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+	/>
+}
+
+templ dangerZone(nav Nav, in Instance) {
+	<section class="border-t border-neutral-800 pt-6">
+		<form
+			method="post"
+			action={ templ.SafeURL(fmt.Sprintf("/%s/%s/%s/delete", nav.UserSlug, in.IntegrationSlug, in.ID)) }
+			hx-confirm="delete this instance and its credential?"
+		>
+			<button type="submit" class="text-sm text-red-400 transition hover:text-red-300">
+				delete instance
+			</button>
+		</form>
+	</section>
+}
