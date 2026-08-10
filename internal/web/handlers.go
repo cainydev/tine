@@ -226,12 +226,16 @@ func (s *Server) saveCredential(w http.ResponseWriter, r *http.Request, u *User)
 	}
 
 	input := CredentialInput{
-		Kind:       r.FormValue("kind"),
-		Token:      r.FormValue("token"),
-		HeaderName: r.FormValue("header_name"),
-		Value:      r.FormValue("header_value"),
-		Username:   r.FormValue("username"),
-		Password:   r.FormValue("password"),
+		Kind:         r.FormValue("kind"),
+		Token:        r.FormValue("token"),
+		HeaderName:   r.FormValue("header_name"),
+		Value:        r.FormValue("header_value"),
+		Username:     r.FormValue("username"),
+		Password:     r.FormValue("password"),
+		ClientID:     r.FormValue("oauth_client_id"),
+		ClientSecret: r.FormValue("oauth_client_secret"),
+		TokenURL:     strings.TrimSpace(r.FormValue("oauth_token_url")),
+		BaseURL:      instance.Params["base_url"],
 	}
 
 	if err := s.store.SetCredential(r.Context(), u.Subject, instance.ID, input); err != nil {

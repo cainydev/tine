@@ -105,7 +105,11 @@ func Unmarshal(kind Kind, data []byte) (Credential, error) {
 	case KindBasic:
 		return decode[Basic](data, kind)
 	case KindOAuth2:
-		return nil, fmt.Errorf("credential kind %q is not implemented yet", kind)
+		var out ClientCredentials
+		if err := json.Unmarshal(data, &out); err != nil {
+			return nil, fmt.Errorf("decode %s credential: %w", kind, err)
+		}
+		return &out, nil
 	default:
 		return nil, fmt.Errorf("unknown credential kind %q", kind)
 	}

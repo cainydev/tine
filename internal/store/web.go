@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cainydev/tine/integrations/shopware"
 	"github.com/cainydev/tine/internal/credential"
 	"github.com/cainydev/tine/internal/store/sqlc"
 	"github.com/cainydev/tine/internal/web"
@@ -243,7 +244,24 @@ func buildCredential(in web.CredentialInput) (credential.Credential, error) {
 		}
 		return credential.Basic{Username: in.Username, Password: in.Password}, nil
 	case credential.KindOAuth2:
-		return nil, errors.New("oauth is not supported through this form yet")
+		if in.ClientID == "" || in.ClientSecret == "" {
+			return nil, errors.New("client id and secret are required")
+		}
+
+		tokenURL := in.TokenURL
+		if tokenURL == "" {
+			if in.BaseURL == "" {
+				return nil, errors.New("token url is required when the instance has no base url")
+			}
+			// Shopware's token endpoint is a fixed path under the store url.
+			tokenURL = shopware.TokenURL(in.BaseURL)
+		}
+
+		return &credential.ClientCredentials{
+			TokenURL:     tokenURL,
+			ClientID:     in.ClientID,
+			ClientSecret: in.ClientSecret,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unknown credential type %q", in.Kind)
 	}

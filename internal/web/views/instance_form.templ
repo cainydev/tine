@@ -155,6 +155,7 @@ templ credentialSection(nav Nav, in Instance) {
 					@kindOption("bearer", "bearer token", in.CredentialKind)
 					@kindOption("header", "header value", in.CredentialKind)
 					@kindOption("basic", "username and password", in.CredentialKind)
+					@kindOption("oauth2", "oauth2 client credentials", in.CredentialKind)
 				</select>
 			}
 			<div id="credential-fields">
@@ -209,6 +210,28 @@ templ CredentialFields(kind string) {
 			}
 			@field("password", "") {
 				@secretInput("password")
+			}
+		case "oauth2":
+			@field("client id", "for shopware: the access key id of an integration") {
+				<input
+					type="text"
+					name="oauth_client_id"
+					required
+					autocomplete="off"
+					class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+				/>
+			}
+			@field("client secret", "") {
+				@secretInput("oauth_client_secret")
+			}
+			@field("token url", "leave empty to derive it from the instance base url") {
+				<input
+					type="text"
+					name="oauth_token_url"
+					autocomplete="off"
+					placeholder="derived from base_url"
+					class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+				/>
 			}
 		default:
 			<p class="text-xs text-neutral-500">this integration reaches a public api and needs no credential.</p>

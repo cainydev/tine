@@ -89,6 +89,16 @@ type CredentialInput struct {
 	Value      string
 	Username   string
 	Password   string
+
+	// OAuth2 client credentials. TokenURL may be empty, in which case the
+	// integration derives it from the instance's own settings.
+	ClientID     string
+	ClientSecret string
+	TokenURL     string
+
+	// BaseURL is the instance's configured base url, so a credential that needs
+	// a token endpoint can derive one.
+	BaseURL string
 }
 
 // Server serves the interface.

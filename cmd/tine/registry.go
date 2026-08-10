@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/cainydev/tine/integrations"
 	dbint "github.com/cainydev/tine/integrations/db"
+	"github.com/cainydev/tine/integrations/shopware"
 )
 
 // registry returns every integration compiled into this binary.
@@ -13,6 +14,7 @@ func registry() *integrations.Registry {
 	r := integrations.NewRegistry()
 	for _, in := range []integrations.Integration{
 		dbint.New(),
+		shopware.New(),
 	} {
 		// Register only fails on a duplicate or empty slug, both of which are
 		// mistakes in this list rather than runtime conditions.
