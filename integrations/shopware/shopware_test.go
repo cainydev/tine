@@ -302,3 +302,66 @@ func TestTokenURL(t *testing.T) {
 
 // Integration must satisfy the interface the registry consumes.
 var _ integrations.Integration = (*Integration)(nil)
+
+// The sw-language-id header takes a Shopware id, not a locale. Sending a locale
+// makes the API reject the request with 412 Precondition Failed.
+func TestLanguageHeaderOnlySentForShopwareIDs(t *testing.T) {
+	t.Parallel()
+
+	var seen struct {
+		sync.Mutex
+		values []string
+		count  int
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/oauth/token" {
+			writeJSON(t, w, map[string]any{"access_token": "t", "expires_in": 600})
+			return
+		}
+		seen.Lock()
+		seen.count++
+		seen.values = append(seen.values, r.Header.Get("sw-language-id"))
+		seen.Unlock()
+		writeJSON(t, w, map[string]any{"total": 0, "data": []any{}})
+	}))
+	t.Cleanup(srv.Close)
+
+	tests := []struct {
+		name     string
+		language string
+		wantSent bool
+	}{
+		{"locale is not sent", "de-DE", false},
+		{"empty is not sent", "", false},
+		{"short hex is not sent", "abc123", false},
+		{"shopware id is sent", "2fbb5fe2e29a4d70aa5854ce7ce3e20b", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cred := &credential.ClientCredentials{
+				TokenURL: TokenURL(srv.URL), ClientID: "k", ClientSecret: "s",
+			}
+			cred.WithClient(http.DefaultClient)
+
+			c := &client{baseURL: srv.URL, language: tc.language, cred: cred, http: http.DefaultClient}
+
+			var out struct{}
+			if err := c.post(t.Context(), "/api/search/product", map[string]any{}, &out); err != nil {
+				t.Fatalf("request: %v", err)
+			}
+
+			seen.Lock()
+			got := seen.values[len(seen.values)-1]
+			seen.Unlock()
+
+			if tc.wantSent && got != tc.language {
+				t.Errorf("sw-language-id = %q, want %q", got, tc.language)
+			}
+			if !tc.wantSent && got != "" {
+				t.Errorf("sw-language-id = %q, want it not sent", got)
+			}
+		})
+	}
+}

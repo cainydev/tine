@@ -40,9 +40,25 @@ func (*Integration) Params() []integrations.ParamSpec {
 		Required:    true,
 	}, {
 		Key:         "language",
-		Description: "Language for translated fields, as an ISO code.",
-		Default:     "de-DE",
+		Description: "Language id for translated fields, as a 32 character Shopware id. Leave empty for the store default.",
 	}}
+}
+
+// isShopwareID reports whether s is a Shopware entity id.
+//
+// Shopware ids are 32 character lowercase hex. The sw-language-id header
+// rejects anything else with 412 Precondition Failed, including locale codes
+// such as de-DE.
+func isShopwareID(s string) bool {
+	if len(s) != 32 {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // TokenURL returns the Admin API token endpoint for a store.
@@ -408,7 +424,7 @@ func (c *client) send(ctx context.Context, method, path string, body []byte) (*h
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.language != "" {
+	if isShopwareID(c.language) {
 		req.Header.Set("sw-language-id", c.language)
 	}
 
