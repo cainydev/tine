@@ -18,14 +18,21 @@ type mcpConfig struct {
 }
 
 type mcpServer struct {
-	Type string `json:"type"`
-	URL  string `json:"url"`
+	Type    string            `json:"type"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // clientConfig returns the configuration a client needs to reach one endpoint.
 func clientConfig(name, url string) ([]byte, error) {
+	return clientConfigWithHeaders(name, url, nil)
+}
+
+// clientConfigWithHeaders returns the configuration, carrying a credential in a
+// header when one is needed.
+func clientConfigWithHeaders(name, url string, headers map[string]string) ([]byte, error) {
 	cfg := mcpConfig{Servers: map[string]mcpServer{
-		name: {Type: "http", URL: url},
+		name: {Type: "http", URL: url, Headers: headers},
 	}}
 
 	out, err := json.MarshalIndent(cfg, "", "  ")
@@ -68,11 +75,15 @@ type agentAuth struct {
 	ClientID     string
 	ClientSecret string
 	CallbackPort int
+
+	// Headers the client sends on every request, carrying a bearer token when
+	// the agent authenticates with one.
+	Headers map[string]string
 }
 
 // agentCommandFor resolves how to launch an agent against one endpoint.
 func agentCommandFor(agent, name, url string, auth agentAuth) (agentCommand, error) {
-	config, err := clientConfig(name, url)
+	config, err := clientConfigWithHeaders(name, url, auth.Headers)
 	if err != nil {
 		return agentCommand{}, err
 	}

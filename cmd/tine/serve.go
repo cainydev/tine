@@ -62,6 +62,14 @@ func (*serveCmd) Run() error {
 		}
 	}
 
+	// Every instance accepts every mode: a request carrying a proof is verified
+	// against it, anything else falls through to the authenticator above.
+	signer, err := gateway.NewSigner(cfg.MasterKey)
+	if err != nil {
+		return fmt.Errorf("url signing key: %w", err)
+	}
+	auth = gateway.WithSignedURLs(gateway.WithBearerTokens(auth, db), signer)
+
 	reg := registry()
 	log.Info("integrations registered", slog.Int("count", len(reg.All())))
 
