@@ -110,7 +110,7 @@ func viewTokens(tokens []Token) []views.Token {
 			view.Expires = t.ExpiresAt.Format(expiryLayout)
 		}
 		if !t.LastUsedAt.IsZero() {
-			view.LastUsed = t.LastUsedAt.Format(expiryLayout)
+			view.LastUsed = since(t.LastUsedAt, time.Now())
 		}
 		out = append(out, view)
 	}
@@ -126,6 +126,32 @@ func viewScopes(instances []Instance) []views.TokenScope {
 		})
 	}
 	return out
+}
+
+// since renders how long ago a token was used.
+//
+// Relative rather than a timestamp because the question a reader has is whether
+// something is still using this token, which a date cannot answer. Use is
+// recorded at most once a minute, so anything finer would be misleading.
+func since(t, now time.Time) string {
+	d := now.Sub(t)
+
+	switch {
+	case d < 2*time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%d minutes ago", int(d.Minutes()))
+	case d < 2*time.Hour:
+		return "an hour ago"
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d hours ago", int(d.Hours()))
+	case d < 48*time.Hour:
+		return "yesterday"
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+	default:
+		return t.Format(expiryLayout)
+	}
 }
 
 // parseExpiry reads the expiry field. Empty means the token never expires.
