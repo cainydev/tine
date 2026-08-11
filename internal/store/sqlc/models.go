@@ -36,6 +36,22 @@ type Integration struct {
 	CreatedAt int64
 }
 
+type Token struct {
+	ID         string
+	Subject    string
+	Name       string
+	Hash       string
+	ExpiresAt  *int64
+	CreatedAt  int64
+	LastUsedAt *int64
+	Scoped     int64
+}
+
+type TokenGrant struct {
+	TokenID    string
+	InstanceID string
+}
+
 type User struct {
 	ID        string
 	Subject   string

@@ -10,30 +10,43 @@ import (
 
 type Querier interface {
 	CreateInstance(ctx context.Context, arg CreateInstanceParams) (Instance, error)
+	CreateToken(ctx context.Context, arg CreateTokenParams) (Token, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteCredential(ctx context.Context, instanceID string) error
 	DeleteInstance(ctx context.Context, id string) error
 	DeleteInstanceForUser(ctx context.Context, arg DeleteInstanceForUserParams) (int64, error)
+	DeleteToken(ctx context.Context, arg DeleteTokenParams) (int64, error)
 	GetCredentialByInstance(ctx context.Context, instanceID string) (Credential, error)
 	// Ownership is part of the lookup, so a handler cannot forget to check it.
 	GetInstanceForUser(ctx context.Context, arg GetInstanceForUserParams) (GetInstanceForUserRow, error)
 	GetInstanceParams(ctx context.Context, id string) (string, error)
 	GetIntegrationBySlug(ctx context.Context, slug string) (Integration, error)
+	GetTokenByHash(ctx context.Context, hash string) (Token, error)
 	GetUserBySubject(ctx context.Context, subject string) (User, error)
+	GrantTokenInstance(ctx context.Context, arg GrantTokenInstanceParams) error
 	// Rotation: find everything still sealed under an old master key.
 	ListCredentialsForRekey(ctx context.Context, arg ListCredentialsForRekeyParams) ([]Credential, error)
 	// Proactive refresh, so a request does not pay for a token exchange.
 	ListExpiringCredentials(ctx context.Context, arg ListExpiringCredentialsParams) ([]Credential, error)
+	// Every grant belonging to a subject's tokens, so a listing can name the
+	// endpoints each token reaches without a query per token.
+	ListGrantsForSubject(ctx context.Context, subject string) ([]ListGrantsForSubjectRow, error)
 	ListInstancesBySubject(ctx context.Context, subject string) ([]ListInstancesBySubjectRow, error)
 	// Every instance a user owns, with the integration it was created against.
 	ListInstancesForUser(ctx context.Context, subject string) ([]ListInstancesForUserRow, error)
 	ListInstancesForUserIntegration(ctx context.Context, arg ListInstancesForUserIntegrationParams) ([]ListInstancesForUserIntegrationRow, error)
+	ListTokensForSubject(ctx context.Context, subject string) ([]Token, error)
 	MarkCredentialNeedsReauth(ctx context.Context, arg MarkCredentialNeedsReauthParams) error
 	// The routing hot path. The id is the primary key, but the user and
 	// integration slugs must also match: a correct id under the wrong path does not
 	// resolve, so the URL as a whole identifies the instance.
 	ResolveInstance(ctx context.Context, arg ResolveInstanceParams) (ResolveInstanceRow, error)
 	SetInstanceEnabled(ctx context.Context, arg SetInstanceEnabledParams) error
+	// Whether a scoped token names this instance. Unscoped tokens never reach here.
+	TokenGrantsInstance(ctx context.Context, arg TokenGrantsInstanceParams) (int64, error)
+	// Skips the write unless a minute has passed, so a token in constant use does
+	// not serialise every request behind a write on a single-writer database.
+	TouchToken(ctx context.Context, arg TouchTokenParams) error
 	UpdateInstanceParams(ctx context.Context, arg UpdateInstanceParamsParams) error
 	UpsertCredential(ctx context.Context, arg UpsertCredentialParams) (Credential, error)
 	UpsertIntegration(ctx context.Context, arg UpsertIntegrationParams) (Integration, error)
