@@ -33,8 +33,43 @@ cover:
     go test -coverprofile=/tmp/tine-cover.out ./...
     go tool cover -html=/tmp/tine-cover.out
 
+tailwind_version := "4.3.3"
+tailwind := ".tools/tailwindcss"
+
+# Regenerate templates and the stylesheet.
+#
+# Tailwind emits only the classes it finds in the templates, so a new class in a
+# .templ file has no rule behind it until this runs.
+generate: (_tailwind)
+    templ generate
+    {{ tailwind }} -i internal/web/static/app.src.css -o internal/web/static/app.css --minify
+
+# Fetch the standalone tailwind binary, which bundles its own runtime so the
+# stylesheet builds without a node toolchain.
+_tailwind:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -x "{{ tailwind }}" ] && "{{ tailwind }}" --help 2>&1 | grep -q "v{{ tailwind_version }}"; then
+        exit 0
+    fi
+    mkdir -p .tools
+    case "$(uname -s)" in
+        Linux)  os=linux ;;
+        Darwin) os=macos ;;
+        *) echo "unsupported system $(uname -s)" >&2; exit 1 ;;
+    esac
+    case "$(uname -m)" in
+        x86_64)  arch=x64 ;;
+        aarch64|arm64) arch=arm64 ;;
+        *) echo "unsupported architecture $(uname -m)" >&2; exit 1 ;;
+    esac
+    url="https://github.com/tailwindlabs/tailwindcss/releases/download/v{{ tailwind_version }}/tailwindcss-${os}-${arch}"
+    echo "fetching tailwindcss v{{ tailwind_version }}"
+    curl -fsSL "$url" -o "{{ tailwind }}"
+    chmod +x "{{ tailwind }}"
+
 # Build the binary.
-build:
+build: generate
     go build -o bin/tine ./cmd/tine
 
 # Tidy modules and verify nothing is stale.
@@ -61,9 +96,10 @@ env: build
 
 # Launch claude against an instance on a running server.
 #
-#   just launch john/deutsche-bahn/edc1e8b0b00b7e55
+#   just connect john/deutsche-bahn/edc1e8b0b00b7e55
+#   just connect john/deutsche-bahn/edc1e8b0b00b7e55 --auth=oauth
 #
-launch instance: build
+connect instance *args: build
     ./bin/tine connect "$@"
 
 # Serve one integration locally with auth disabled.
