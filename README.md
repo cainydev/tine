@@ -69,6 +69,25 @@ TINE_MASTER_KEY=<from genkey> \
 `tine --help` lists every command, and each command's `--help` lists the
 integrations compiled into the binary along with their parameters.
 
+### behind a proxy
+
+tine serves plain http and does not compress. terminate tls and encode at the
+proxy:
+
+```
+tine.example {
+    encode zstd gzip
+    reverse_proxy localhost:8080
+}
+```
+
+compression belongs there rather than in tine: mcp responses stream, and a
+handler that buffers to compress would hold a response open until it ended.
+
+a page and the stylesheet are ~5 kb encoded, inside the ~13.5 kb a server sends
+before waiting for an acknowledgement, so a cold load costs one round trip. a
+test in `internal/web/views` fails if a page grows past that.
+
 ### configuration
 
 | variable | required | default | meaning |
