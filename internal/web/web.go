@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/cainydev/tine/integrations"
 	"github.com/cainydev/tine/internal/slug"
@@ -43,6 +44,10 @@ type Store interface {
 	DeleteInstance(ctx context.Context, subject, id string) error
 
 	SetCredential(ctx context.Context, subject, id string, cred CredentialInput) error
+
+	CreateToken(ctx context.Context, in NewToken) (*CreatedToken, error)
+	TokensForSubject(ctx context.Context, subject string) ([]Token, error)
+	DeleteToken(ctx context.Context, subject, id string) error
 }
 
 // User is an account in the interface.
@@ -128,6 +133,9 @@ func (s *Server) Routes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /settings", s.page(s.settings))
 	mux.HandleFunc("POST /settings/username", s.claimUsername)
+	mux.HandleFunc("GET /settings/tokens", s.page(s.tokenList))
+	mux.HandleFunc("POST /settings/tokens", s.page(s.createToken))
+	mux.HandleFunc("POST /settings/tokens/{id}/revoke", s.page(s.revokeToken))
 	mux.HandleFunc("GET /integrations", s.page(s.integrationList))
 
 	mux.HandleFunc("GET /{user}", s.page(s.userInstances))
@@ -198,6 +206,57 @@ func (s *Server) endpoint(userSlug, integrationSlug, id string) string {
 
 // ErrNoUser is returned by a Store when a subject has no account yet.
 var ErrNoUser = errors.New("no user")
+
+// ErrNoToken is returned when a token does not exist, or belongs to someone
+// else. The two are not distinguished, so a caller cannot probe for another
+// user's token ids.
+var ErrNoToken = errors.New("no such token")
+
+// ErrNoInstance is returned when a token names an instance the caller does not
+// own.
+var ErrNoInstance = errors.New("no such instance")
+
+// TokenGrant is one instance a token reaches.
+type TokenGrant struct {
+	InstanceID      string
+	InstanceName    string
+	IntegrationSlug string
+}
+
+// Token is an issued bearer token, without its plaintext.
+type Token struct {
+	ID   string
+	Name string
+
+	// Scoped reports whether the token is restricted to Grants. A scoped token
+	// with no grants left reaches nothing, which is not the same as unscoped.
+	Scoped bool
+
+	Grants []TokenGrant
+
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	LastUsedAt time.Time
+}
+
+// NewToken describes a token to issue.
+type NewToken struct {
+	Subject string
+	Name    string
+
+	// Empty grants every instance the subject owns, now and in future.
+	InstanceIDs []string
+
+	// Zero never expires.
+	ExpiresAt time.Time
+}
+
+// CreatedToken carries the one and only view of a token's plaintext.
+type CreatedToken struct {
+	ID        string
+	Name      string
+	Plaintext string
+}
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

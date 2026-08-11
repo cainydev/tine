@@ -1,0 +1,152 @@
+package views
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Token is an issued bearer token as shown in the interface. The token itself
+// is not recoverable, so only its metadata appears here.
+type Token struct {
+	ID   string
+	Name string
+
+	// Scoped reports whether the token is restricted to Scopes.
+	Scoped bool
+
+	// Scopes are the endpoints a token reaches, when it is scoped.
+	Scopes []string
+
+	Created  string
+	Expires  string
+	LastUsed string
+}
+
+// TokenScope is one choice in the scope selector.
+type TokenScope struct {
+	InstanceID string
+	Label      string
+}
+
+// Tokens lists a user's bearer tokens and the form to issue another.
+//
+// created carries a newly issued token's plaintext, which is shown once and is
+// unrecoverable afterwards.
+templ Tokens(nav Nav, tokens []Token, scopes []TokenScope, created string, err string) {
+	@Layout("tokens", nav) {
+		@Page("tokens", "for clients that cannot sign in through a browser, such as a scheduled job") {
+			if created != "" {
+				@newToken(created)
+			}
+			if err != "" {
+				<p class="mb-6 rounded border border-red-900/60 bg-red-950/40 px-4 py-3 font-mono text-sm text-red-300">
+					{ err }
+				</p>
+			}
+			@tokenForm(scopes)
+			<section class="mt-10">
+				<h2 class="mb-4 text-sm font-medium text-neutral-300">issued</h2>
+				if len(tokens) == 0 {
+					@Empty("no tokens yet.")
+				} else {
+					<ul class="space-y-3">
+						for _, t := range tokens {
+							@tokenRow(t)
+						}
+					</ul>
+				}
+			</section>
+		}
+	}
+}
+
+// newToken shows a token's plaintext, the only time it is ever displayed.
+templ newToken(plaintext string) {
+	<div class="mb-8 rounded border border-neutral-700 bg-neutral-900/60 p-4">
+		<p class="mb-3 text-sm text-neutral-300">
+			copy this now. it is not shown again and cannot be recovered.
+		</p>
+		<code class="block overflow-x-auto rounded border border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-sm text-neutral-100">
+			{ plaintext }
+		</code>
+		<p class="mt-3 text-xs text-neutral-500">
+			send it as: Authorization: Bearer &lt;token&gt;
+		</p>
+	</div>
+}
+
+templ tokenForm(scopes []TokenScope) {
+	<form method="post" action="/settings/tokens" class="space-y-5 rounded border border-neutral-800 bg-neutral-900/40 p-4">
+		@field("name", "what this token is for, so it can be recognised later") {
+			<input
+				type="text"
+				name="name"
+				required
+				placeholder="nightly-sync"
+				class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+			/>
+		}
+		@field("scope", "which endpoints this token may reach. select several to grant a subset") {
+			<select
+				name="instance_id"
+				multiple
+				size="6"
+				class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+			>
+				<option value="" selected>every instance i own</option>
+				for _, s := range scopes {
+					<option value={ s.InstanceID }>{ s.Label }</option>
+				}
+			</select>
+		}
+		@field("expires", "leave empty to never expire") {
+			<input
+				type="date"
+				name="expires_at"
+				class="w-full rounded border border-neutral-800 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+			/>
+		}
+		<button
+			type="submit"
+			class="rounded border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 transition hover:border-neutral-500 hover:text-neutral-100"
+		>
+			create token
+		</button>
+	</form>
+}
+
+templ tokenRow(t Token) {
+	<li class="flex items-start justify-between gap-4 rounded border border-neutral-800 bg-neutral-900/40 px-4 py-3">
+		<div class="min-w-0">
+			<p class="font-mono text-sm text-neutral-100">{ t.Name }</p>
+			<p class="mt-1 text-xs text-neutral-500">
+				if !t.Scoped {
+					<span>every instance</span>
+				} else if len(t.Scopes) == 0 {
+					<span>no instances left</span>
+				} else {
+					<span>{ strings.Join(t.Scopes, ", ") }</span>
+				}
+				·
+				{ t.Created }
+				if t.Expires != "" {
+					· expires { t.Expires }
+				}
+				if t.LastUsed != "" {
+					· last used { t.LastUsed }
+				} else {
+					· never used
+				}
+			</p>
+		</div>
+		<form
+			method="post"
+			action={ templ.SafeURL(fmt.Sprintf("/settings/tokens/%s/revoke", t.ID)) }
+			hx-confirm="revoke this token? anything using it loses access immediately."
+		>
+			<button type="submit" class="shrink-0 text-sm text-red-400 transition hover:text-red-300">
+				revoke
+			</button>
+		</form>
+	</li>
+}

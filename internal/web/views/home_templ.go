@@ -263,7 +263,7 @@ func Settings(nav Nav, endpointBase string) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "/&lt;integration&gt;/&lt;id&gt;</dd></div></dl>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "/&lt;integration&gt;/&lt;id&gt;</dd></div><div><dt class=\"text-sm font-medium text-neutral-300\">tokens</dt><dd class=\"mt-1 text-sm text-neutral-500\"><p>bearer tokens let a scheduled job reach an endpoint without a browser</p><a href=\"/settings/tokens\" class=\"text-neutral-400 underline transition hover:text-neutral-100\">manage tokens</a></dd></div></dl>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -336,7 +336,7 @@ func LoginFailed(reason string) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(reason)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/home.templ`, Line: 84, Col: 12}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/home.templ`, Line: 91, Col: 12}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
