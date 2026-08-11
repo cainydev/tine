@@ -14,7 +14,7 @@ import (
 )
 
 // seedCmd creates a user and one integration instance, printing the resulting
-// endpoint. It exists so a deployment can be exercised before an admin UI does.
+// endpoint. It exists so a deployment can be exercised without a browser.
 type seedCmd struct {
 	Integration string            `arg:"" help:"Integration to configure. Compiled in:${integrations}"`
 	Subject     string            `required:"" help:"OIDC subject of the owning user."`

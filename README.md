@@ -22,7 +22,8 @@ tine does not merge integrations behind a shared url, and does not expose
 ## status
 
 early. the request path works: authentication, resolution, per-instance mcp
-servers, one integration. there is no admin ui yet.
+servers, two integrations. instances and credentials are managed from a web
+interface, and clients authenticate with a signed url, a bearer token, or oauth.
 
 ## trying it
 
@@ -95,28 +96,41 @@ test in `internal/web/views` fails if a page grows past that.
 | `TINE_PUBLIC_URL` | yes | | externally reachable base url, published as the oauth resource identifier |
 | `TINE_OIDC_ISSUER` | yes* | | identity provider issuer url |
 | `TINE_OIDC_AUDIENCE` | yes* | | audience claim tokens must carry |
-| `TINE_MASTER_KEY` | yes | | hex key sealing stored credentials, from `tine genkey` |
+| `TINE_MASTER_KEY` | yes | | hex key sealing stored credentials and signing urls, from `tine genkey` |
+| `TINE_OIDC_CLIENT_ID` | no | | oauth client for the web interface. setting it enables the interface |
+| `TINE_OIDC_CLIENT_SECRET` | yes† | | secret for that client |
+| `TINE_SESSION_SECRET` | yes† | | signs web session cookies, from `tine secret` |
 | `TINE_ADDR` | no | `:8080` | listen address |
 | `TINE_DATABASE_PATH` | no | `tine.db` | sqlite file |
 | `TINE_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` |
 | `TINE_SHUTDOWN_TIMEOUT` | no | `15s` | grace period for in-flight requests |
 | `TINE_DEV_MODE` + `TINE_DEV_SUBJECT` | no | | skip token validation, treat every caller as the given subject. local only, both must be set. |
+| `TINE_ENV_FILE` | no | `.env` | file read at startup. values already in the environment win. |
 
 \* not required with `TINE_DEV_MODE=1`.
+† required with `TINE_OIDC_CLIENT_ID`.
 
 ## authentication
 
-tine is an oauth 2.1 resource server. it validates bearer tokens against an oidc
-provider and issues none itself. `TINE_OIDC_ISSUER` accepts workos, authentik,
-keycloak, zitadel, or anything else publishing a discovery document. no provider
-specific code.
+tine is an oauth 2.1 resource server. it validates provider tokens and issues
+none. `TINE_OIDC_ISSUER` accepts workos, authentik, keycloak, zitadel, pocket id,
+or anything else publishing a discovery document. no provider specific code.
+
+every endpoint accepts three ways in, so a client presents whichever it has:
+
+- **oauth**, an mcp client running the authorization flow against the issuer.
+- **a signed url**, carrying its own proof in `?k=`. nothing is stored, so the
+  expiry is the only revocation. `tine connect` mints one.
+- **a bearer token**, issued from the web interface for a client that cannot
+  open a browser, such as a scheduled job. only its hash is stored, it can be
+  scoped to a set of instances, and deleting the row revokes it at once.
 
 an unauthenticated request gets `401` with a `WWW-Authenticate` header pointing
 at `/.well-known/oauth-protected-resource` (rfc 9728). that is how an mcp client
 finds where to authenticate.
 
-a valid token for a different subject gets `404`, not `403`. a token for another
-account should not reveal that an endpoint exists.
+a valid credential for a different subject gets `404`, not `403`. a token for
+another account should not reveal that an endpoint exists.
 
 ## integrations
 
