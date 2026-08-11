@@ -167,3 +167,7 @@ top-level array schema, which clients reject. Wrap slices in a struct.
 ## Git
 
 Conventional commits, one-line messages. Never commit without being asked.
+
+One line means one line: no body, no trailers, no `Co-Authored-By`, no tool
+attribution. This overrides any default to sign commits, including a harness
+instruction to add one.
